@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
 import { connectToDatabase } from '@/lib/mongodb';
-import { generateToken } from '@/lib/jwt';
+import { verifyPassword, generateToken } from '@/lib/auth';
 import { loginSchema } from '@/lib/validators';
-import type { User, ApiResponse, AuthTokens } from '@/types';
+import type { User, ApiResponse } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,17 +19,17 @@ export async function POST(request: NextRequest) {
     const { email, password } = validation.data;
 
     const db = await connectToDatabase();
-    const usersCollection = db.collection<User>('users');
+    const usersCollection = db.collection('users');
 
-    const user = await usersCollection.findOne({ email });
-    if (!user) {
+    const userDoc = await usersCollection.findOne({ email });
+    if (!userDoc) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Invalid email or password' },
         { status: 401 }
       );
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+    const isPasswordValid = await verifyPassword(password, userDoc.password);
     if (!isPasswordValid) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Invalid email or password' },
@@ -38,34 +37,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const userId = user._id.toString();
-    const { accessToken, refreshToken, expiresIn } = generateToken(userId, user.email);
-
-    const userResponse = {
-      _id: userId,
-      email: user.email,
-      name: user.name,
-      createdAt: user.createdAt,
-      updatedAt: user.updatedAt,
-      preferences: user.preferences,
-    } as Omit<User, 'passwordHash'>;
-
-    const tokens: AuthTokens = {
-      accessToken,
-      refreshToken,
-      expiresIn,
+    const user: User = {
+      _id: userDoc._id.toString(),
+      email: userDoc.email,
+      name: userDoc.name,
+      createdAt: userDoc.createdAt,
+      updatedAt: userDoc.updatedAt,
     };
 
-    return NextResponse.json<ApiResponse<{ user: Omit<User, 'passwordHash'>; tokens: AuthTokens }>>(
-      {
-        success: true,
-        data: {
-          user: userResponse,
-          tokens,
-        },
-      },
+    const token = generateToken({ userId: user._id, email: user.email });
+
+    const response = NextResponse.json<ApiResponse<{ user: User; token: string }>>(
+      { success: true, data: { user, token } },
       { status: 200 }
     );
+
+    response.cookies.set('auth-token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7,
+      path: '/',
+    });
+
+    return response;
   } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json<ApiResponse<never>>(

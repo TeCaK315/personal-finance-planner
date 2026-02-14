@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
 import { connectToDatabase } from '@/lib/mongodb';
-import { generateToken } from '@/lib/jwt';
+import { hashPassword, generateToken } from '@/lib/auth';
 import { registerSchema } from '@/lib/validators';
-import type { User, ApiResponse, AuthTokens } from '@/types';
+import type { User, ApiResponse } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,7 +19,7 @@ export async function POST(request: NextRequest) {
     const { email, password, name } = validation.data;
 
     const db = await connectToDatabase();
-    const usersCollection = db.collection<User>('users');
+    const usersCollection = db.collection('users');
 
     const existingUser = await usersCollection.findOne({ email });
     if (existingUser) {
@@ -30,52 +29,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS || '10', 10);
-    const passwordHash = await bcrypt.hash(password, saltRounds);
+    const hashedPassword = await hashPassword(password);
 
-    const newUser: Omit<User, '_id'> = {
+    const result = await usersCollection.insertOne({
       email,
+      password: hashedPassword,
       name,
-      passwordHash,
       createdAt: new Date(),
       updatedAt: new Date(),
-      preferences: {
-        currency: 'USD',
-        language: 'en',
-        notifications: true,
-      },
+    });
+
+    const user: User = {
+      _id: result.insertedId.toString(),
+      email,
+      name,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
-    const result = await usersCollection.insertOne(newUser as User);
-    const userId = result.insertedId.toString();
+    const token = generateToken({ userId: user._id, email: user.email });
 
-    const { accessToken, refreshToken, expiresIn } = generateToken(userId, email);
-
-    const userResponse = {
-      _id: userId,
-      email: newUser.email,
-      name: newUser.name,
-      createdAt: newUser.createdAt,
-      updatedAt: newUser.updatedAt,
-      preferences: newUser.preferences,
-    } as Omit<User, 'passwordHash'>;
-
-    const tokens: AuthTokens = {
-      accessToken,
-      refreshToken,
-      expiresIn,
-    };
-
-    return NextResponse.json<ApiResponse<{ user: Omit<User, 'passwordHash'>; tokens: AuthTokens }>>(
-      {
-        success: true,
-        data: {
-          user: userResponse,
-          tokens,
-        },
-      },
+    const response = NextResponse.json<ApiResponse<{ user: User; token: string }>>(
+      { success: true, data: { user, token } },
       { status: 201 }
     );
+
+    response.cookies.set('auth-token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7,
+      path: '/',
+    });
+
+    return response;
   } catch (error) {
     console.error('Registration error:', error);
     return NextResponse.json<ApiResponse<never>>(

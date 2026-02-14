@@ -1,63 +1,62 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ObjectId } from 'mongodb';
+import { getServerSession } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/mongodb';
-import { verifyToken } from '@/lib/jwt';
 import { budgetSchema } from '@/lib/validators';
+import { ObjectId } from 'mongodb';
 import type { Budget, ApiResponse, PaginatedResponse } from '@/types';
 
 export async function GET(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
+    const session = await getServerSession(request);
+    if (!session) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const token = authHeader.substring(7);
-    const payload = await verifyToken(token);
-    if (!payload) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Invalid token' },
-        { status: 401 }
-      );
-    }
-
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1', 10);
-    const limit = parseInt(searchParams.get('limit') || '10', 10);
-    const active = searchParams.get('active');
+    const status = searchParams.get('status') as 'active' | 'completed' | 'exceeded' | null;
+    const page = parseInt(searchParams.get('page') || '1');
+    const limit = parseInt(searchParams.get('limit') || '10');
+    const skip = (page - 1) * limit;
 
     const db = await connectToDatabase();
-    const budgetsCollection = db.collection<Budget>('budgets');
+    const budgetsCollection = db.collection('budgets');
 
-    const query: Record<string, unknown> = { userId: payload.userId };
-    
-    if (active === 'true') {
-      const now = new Date();
-      query.startDate = { $lte: now };
-      query.endDate = { $gte: now };
+    const query: Record<string, unknown> = { userId: session.userId };
+    if (status) {
+      query.status = status;
     }
 
-    const skip = (page - 1) * limit;
     const total = await budgetsCollection.countDocuments(query);
-    const budgets = await budgetsCollection
+    const budgetDocs = await budgetsCollection
       .find(query)
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .toArray();
 
-    const budgetsWithStringId = budgets.map(budget => ({
-      ...budget,
-      _id: budget._id.toString(),
+    const budgets: Budget[] = budgetDocs.map((doc) => ({
+      _id: doc._id.toString(),
+      userId: doc.userId,
+      name: doc.name,
+      period: doc.period,
+      startDate: doc.startDate,
+      endDate: doc.endDate,
+      categories: doc.categories,
+      totalIncome: doc.totalIncome,
+      totalExpenses: doc.totalExpenses,
+      status: doc.status,
+      healthScore: doc.healthScore,
+      createdAt: doc.createdAt,
+      updatedAt: doc.updatedAt,
     }));
 
     return NextResponse.json<PaginatedResponse<Budget>>(
       {
         success: true,
-        data: budgetsWithStringId,
+        data: budgets,
         pagination: {
           page,
           limit,
@@ -78,24 +77,16 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
+    const session = await getServerSession(request);
+    if (!session) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const token = authHeader.substring(7);
-    const payload = await verifyToken(token);
-    if (!payload) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Invalid token' },
-        { status: 401 }
-      );
-    }
-
     const body = await request.json();
+    
     const validation = budgetSchema.safeParse(body);
     if (!validation.success) {
       return NextResponse.json<ApiResponse<never>>(
@@ -104,48 +95,82 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { name, totalAmount, startDate, endDate, categoryLimits } = validation.data;
+    const { name, period, startDate, endDate, categories } = validation.data;
 
     const db = await connectToDatabase();
-    const budgetsCollection = db.collection<Budget>('budgets');
+    const budgetsCollection = db.collection('budgets');
     const categoriesCollection = db.collection('categories');
 
-    const categoryIds = categoryLimits.map(cl => new ObjectId(cl.categoryId));
-    const categories = await categoriesCollection
-      .find({ _id: { $in: categoryIds } })
+    const categoryIds = categories.map((c) => new ObjectId(c.categoryId));
+    const categoryDocs = await categoriesCollection
+      .find({ _id: { $in: categoryIds }, userId: session.userId })
       .toArray();
 
-    const categoryMap = new Map(categories.map(cat => [cat._id.toString(), cat.name]));
+    if (categoryDocs.length !== categories.length) {
+      return NextResponse.json<ApiResponse<never>>(
+        { success: false, error: 'One or more categories not found' },
+        { status: 404 }
+      );
+    }
 
-    const enrichedCategoryLimits = categoryLimits.map(cl => ({
-      categoryId: cl.categoryId,
-      categoryName: categoryMap.get(cl.categoryId) || 'Unknown',
-      limit: cl.limit,
-      spent: 0,
-    }));
+    const totalIncome = categories
+      .filter((c) => {
+        const cat = categoryDocs.find((cd) => cd._id.toString() === c.categoryId);
+        return cat?.type === 'income';
+      })
+      .reduce((sum, c) => sum + c.allocatedAmount, 0);
 
-    const newBudget: Omit<Budget, '_id'> = {
-      userId: payload.userId,
+    const totalExpenses = categories
+      .filter((c) => {
+        const cat = categoryDocs.find((cd) => cd._id.toString() === c.categoryId);
+        return cat?.type === 'expense';
+      })
+      .reduce((sum, c) => sum + c.allocatedAmount, 0);
+
+    const budgetCategories = categories.map((c) => {
+      const cat = categoryDocs.find((cd) => cd._id.toString() === c.categoryId);
+      return {
+        categoryId: c.categoryId,
+        categoryName: cat?.name || '',
+        allocatedAmount: c.allocatedAmount,
+        spentAmount: 0,
+        percentage: totalExpenses > 0 ? (c.allocatedAmount / totalExpenses) * 100 : 0,
+      };
+    });
+
+    const result = await budgetsCollection.insertOne({
+      userId: session.userId,
       name,
-      totalAmount,
+      period,
       startDate: new Date(startDate),
       endDate: new Date(endDate),
-      categoryLimits: enrichedCategoryLimits,
+      categories: budgetCategories,
+      totalIncome,
+      totalExpenses,
+      status: 'active',
+      healthScore: 100,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    const budget: Budget = {
+      _id: result.insertedId.toString(),
+      userId: session.userId,
+      name,
+      period,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      categories: budgetCategories,
+      totalIncome,
+      totalExpenses,
+      status: 'active',
+      healthScore: 100,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
 
-    const result = await budgetsCollection.insertOne(newBudget as Budget);
-    const budgetId = result.insertedId.toString();
-
     return NextResponse.json<ApiResponse<Budget>>(
-      {
-        success: true,
-        data: {
-          ...newBudget,
-          _id: budgetId,
-        },
-      },
+      { success: true, data: budget },
       { status: 201 }
     );
   } catch (error) {

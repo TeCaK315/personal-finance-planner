@@ -2,163 +2,126 @@ export interface User {
   _id: string;
   email: string;
   name: string;
-  passwordHash: string;
   createdAt: Date;
   updatedAt: Date;
-  preferences?: {
-    currency: string;
-    language: string;
-    notifications: boolean;
-  };
 }
 
 export interface Category {
   _id: string;
   userId: string;
   name: string;
-  icon: string;
+  type: 'income' | 'expense';
   color: string;
-  isDefault: boolean;
+  icon?: string;
   createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface Budget {
   _id: string;
   userId: string;
   name: string;
-  totalAmount: number;
+  period: 'monthly' | 'yearly';
   startDate: Date;
   endDate: Date;
-  categoryLimits: CategoryLimit[];
+  categories: BudgetCategory[];
+  totalIncome: number;
+  totalExpenses: number;
+  status: 'active' | 'completed' | 'exceeded';
+  healthScore?: number;
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface CategoryLimit {
+export interface BudgetCategory {
   categoryId: string;
   categoryName: string;
-  limit: number;
-  spent: number;
+  allocatedAmount: number;
+  spentAmount: number;
+  percentage: number;
 }
 
 export interface Transaction {
   _id: string;
   userId: string;
-  budgetId: string;
+  budgetId?: string;
   categoryId: string;
-  amount: number;
   type: 'income' | 'expense';
+  amount: number;
   description: string;
   date: Date;
+  recurring?: boolean;
+  recurringFrequency?: 'daily' | 'weekly' | 'monthly' | 'yearly';
+  tags?: string[];
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface BudgetStatus {
-  budgetId: string;
-  totalAmount: number;
-  totalSpent: number;
-  remainingAmount: number;
-  percentageUsed: number;
-  categoryBreakdown: CategoryUsage[];
-  overspendingCategories: string[];
-}
-
-export interface CategoryUsage {
-  categoryId: string;
-  categoryName: string;
-  limit: number;
-  spent: number;
-  remaining: number;
-  percentageUsed: number;
-  isOverspent: boolean;
-}
-
-export interface SpendingReport {
+export interface FinancialRecommendation {
+  _id: string;
   userId: string;
-  startDate: Date;
-  endDate: Date;
+  title: string;
+  description: string;
+  category: 'savings' | 'spending' | 'investment' | 'debt' | 'budget';
+  priority: 'low' | 'medium' | 'high';
+  potentialSavings?: number;
+  actionItems: string[];
+  basedOnData: {
+    budgetId?: string;
+    categoryId?: string;
+    transactionIds?: string[];
+    analysisDate: Date;
+  };
+  status: 'new' | 'viewed' | 'applied' | 'dismissed';
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface BudgetAlert {
+  _id: string;
+  userId: string;
+  budgetId: string;
+  categoryId?: string;
+  type: 'budget_exceeded' | 'approaching_limit' | 'unusual_spending' | 'savings_opportunity';
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  message: string;
+  threshold?: number;
+  currentAmount?: number;
+  dismissed: boolean;
+  createdAt: Date;
+}
+
+export interface FinancialOverview {
   totalIncome: number;
   totalExpenses: number;
   netSavings: number;
-  categoryBreakdown: CategorySpending[];
-  topExpenseCategories: CategorySpending[];
-  dailyAverageExpense: number;
-  generatedAt: Date;
+  savingsRate: number;
+  budgetHealth: number;
+  topCategories: {
+    categoryId: string;
+    categoryName: string;
+    amount: number;
+    percentage: number;
+  }[];
+  period: DateRange;
 }
 
-export interface CategorySpending {
-  categoryId: string;
-  categoryName: string;
-  totalAmount: number;
-  transactionCount: number;
-  percentage: number;
-}
-
-export interface TrendReport {
-  userId: string;
-  startDate: Date;
-  endDate: Date;
-  dataPoints: TrendDataPoint[];
-  averageMonthlyExpense: number;
-  trend: 'increasing' | 'decreasing' | 'stable';
-  trendPercentage: number;
-  generatedAt: Date;
-}
-
-export interface TrendDataPoint {
-  date: Date;
+export interface SpendingTrend {
+  date: string;
   income: number;
   expenses: number;
-  netSavings: number;
+  savings: number;
+  categories: {
+    categoryId: string;
+    categoryName: string;
+    amount: number;
+  }[];
 }
 
-export interface AIRecommendation {
-  _id: string;
-  userId: string;
-  type: 'savings' | 'budget_optimization' | 'spending_alert' | 'investment';
-  priority: 'high' | 'medium' | 'low';
-  title: string;
-  description: string;
-  actionItems: string[];
-  potentialSavings?: number;
-  categoryId?: string;
-  createdAt: Date;
-  isRead: boolean;
-  isDismissed: boolean;
-}
-
-export interface AIAnalysis {
-  userId: string;
-  spendingPatterns: SpendingPattern[];
-  anomalies: Anomaly[];
-  predictions: Prediction[];
-  analyzedAt: Date;
-}
-
-export interface SpendingPattern {
-  categoryId: string;
-  categoryName: string;
-  averageMonthlySpending: number;
-  trend: 'increasing' | 'decreasing' | 'stable';
-  seasonality?: string;
-}
-
-export interface Anomaly {
-  transactionId: string;
-  categoryId: string;
-  amount: number;
-  date: Date;
-  reason: string;
-  severity: 'high' | 'medium' | 'low';
-}
-
-export interface Prediction {
-  categoryId: string;
-  categoryName: string;
-  predictedAmount: number;
-  confidence: number;
-  period: string;
+export interface DateRange {
+  startDate: Date;
+  endDate: Date;
 }
 
 export interface ApiResponse<T> {
@@ -179,45 +142,21 @@ export interface PaginatedResponse<T> {
   };
 }
 
-export interface AuthTokens {
-  accessToken: string;
-  refreshToken: string;
-  expiresIn: number;
-}
-
-export interface JWTPayload {
+export interface AuthTokenPayload {
   userId: string;
   email: string;
   iat: number;
   exp: number;
 }
 
-export interface TransactionFilters {
-  startDate?: Date;
-  endDate?: Date;
-  categoryId?: string;
-  type?: 'income' | 'expense';
-  minAmount?: number;
-  maxAmount?: number;
-  search?: string;
-}
-
-export interface ReportFilters {
-  startDate: Date;
-  endDate: Date;
-  categoryIds?: string[];
-  budgetId?: string;
-}
-
-export interface BulkImportResult {
-  success: boolean;
-  imported: number;
-  failed: number;
-  errors: BulkImportError[];
-}
-
-export interface BulkImportError {
-  row: number;
-  field: string;
-  message: string;
+export interface BudgetHealthMetrics {
+  score: number;
+  status: 'excellent' | 'good' | 'fair' | 'poor';
+  metrics: {
+    spendingRatio: number;
+    savingsRatio: number;
+    categoryBalance: number;
+    consistency: number;
+  };
+  recommendations: string[];
 }

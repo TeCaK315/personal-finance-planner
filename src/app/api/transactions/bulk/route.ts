@@ -1,91 +1,153 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { connectToDatabase } from '@/lib/mongodb';
-import { verifyToken } from '@/lib/jwt';
-import { transactionSchema } from '@/lib/validators';
-import type { Transaction, ApiResponse, BulkImportResult, BulkImportError } from '@/types';
+import { getDb } from '@/lib/mongodb';
+import { getServerSession } from '@/lib/auth';
+import { Transaction, ApiResponse } from '@/types';
+import { ObjectId } from 'mongodb';
 
-export async function POST(request: NextRequest) {
+interface BulkTransactionInput {
+  categoryId: string;
+  type: 'income' | 'expense';
+  amount: number;
+  description: string;
+  date: string;
+  budgetId?: string;
+  tags?: string[];
+}
+
+interface BulkImportResult {
+  imported: number;
+  failed: number;
+  errors?: string[];
+}
+
+export async function POST(request: NextRequest): Promise<NextResponse<ApiResponse<BulkImportResult>>> {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json<ApiResponse<never>>(
+    const session = await getServerSession(request);
+    if (!session) {
+      return NextResponse.json(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const token = authHeader.substring(7);
-    const payload = await verifyToken(token);
-    if (!payload) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Invalid token' },
-        { status: 401 }
-      );
-    }
-
     const body = await request.json();
-    const { transactions } = body;
+    const { transactions } = body as { transactions: BulkTransactionInput[] };
 
-    if (!Array.isArray(transactions) || transactions.length === 0) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Transactions array is required' },
+    if (!transactions || !Array.isArray(transactions) || transactions.length === 0) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid transactions array' },
         { status: 400 }
       );
     }
 
-    const db = await connectToDatabase();
+    const db = await getDb();
     const transactionsCollection = db.collection<Transaction>('transactions');
+    const categoriesCollection = db.collection('categories');
 
+    const errors: string[] = [];
     const validTransactions: Omit<Transaction, '_id'>[] = [];
-    const errors: BulkImportError[] = [];
 
-    transactions.forEach((transaction, index) => {
-      const validation = transactionSchema.safeParse(transaction);
-      if (!validation.success) {
-        errors.push({
-          row: index + 1,
-          field: validation.error.errors[0].path.join('.'),
-          message: validation.error.errors[0].message,
-        });
-      } else {
-        validTransactions.push({
-          userId: payload.userId,
-          budgetId: validation.data.budgetId,
-          categoryId: validation.data.categoryId,
-          amount: validation.data.amount,
-          type: validation.data.type,
-          description: validation.data.description,
-          date: new Date(validation.data.date),
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        });
+    for (let i = 0; i < transactions.length; i++) {
+      const txn = transactions[i];
+
+      if (!txn.categoryId || !txn.type || !txn.amount || !txn.description || !txn.date) {
+        errors.push(`Transaction ${i + 1}: Missing required fields`);
+        continue;
       }
-    });
+
+      if (txn.type !== 'income' && txn.type !== 'expense') {
+        errors.push(`Transaction ${i + 1}: Invalid type (must be 'income' or 'expense')`);
+        continue;
+      }
+
+      if (typeof txn.amount !== 'number' || txn.amount <= 0) {
+        errors.push(`Transaction ${i + 1}: Invalid amount`);
+        continue;
+      }
+
+      const categoryExists = await categoriesCollection.findOne({
+        _id: new ObjectId(txn.categoryId),
+        userId: session.userId
+      });
+
+      if (!categoryExists) {
+        errors.push(`Transaction ${i + 1}: Category not found`);
+        continue;
+      }
+
+      const transactionDate = new Date(txn.date);
+      if (isNaN(transactionDate.getTime())) {
+        errors.push(`Transaction ${i + 1}: Invalid date format`);
+        continue;
+      }
+
+      const validTransaction: Omit<Transaction, '_id'> = {
+        userId: session.userId,
+        categoryId: txn.categoryId,
+        type: txn.type,
+        amount: txn.amount,
+        description: txn.description,
+        date: transactionDate,
+        budgetId: txn.budgetId,
+        tags: txn.tags || [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+
+      validTransactions.push(validTransaction);
+    }
 
     let imported = 0;
     if (validTransactions.length > 0) {
-      const result = await transactionsCollection.insertMany(validTransactions as Transaction[]);
+      const result = await transactionsCollection.insertMany(validTransactions);
       imported = result.insertedCount;
+
+      for (const txn of validTransactions) {
+        if (txn.budgetId) {
+          const budgetsCollection = db.collection('budgets');
+          const budget = await budgetsCollection.findOne({
+            _id: new ObjectId(txn.budgetId),
+            userId: session.userId
+          });
+
+          if (budget) {
+            const categoryIndex = budget.categories.findIndex(
+              (cat: { categoryId: string }) => cat.categoryId === txn.categoryId
+            );
+
+            if (categoryIndex !== -1) {
+              const updateField = txn.type === 'expense' 
+                ? `categories.${categoryIndex}.spentAmount`
+                : 'totalIncome';
+
+              await budgetsCollection.updateOne(
+                { _id: new ObjectId(txn.budgetId) },
+                { 
+                  $inc: { [updateField]: txn.amount },
+                  $set: { updatedAt: new Date() }
+                }
+              );
+            }
+          }
+        }
+      }
     }
 
-    const bulkResult: BulkImportResult = {
-      success: true,
+    const result: BulkImportResult = {
       imported,
-      failed: errors.length,
-      errors,
+      failed: transactions.length - imported,
+      errors: errors.length > 0 ? errors : undefined
     };
 
-    return NextResponse.json<ApiResponse<BulkImportResult>>(
-      {
-        success: true,
-        data: bulkResult,
-      },
-      { status: 200 }
-    );
+    return NextResponse.json({
+      success: true,
+      data: result
+    });
+
   } catch (error) {
     console.error('Bulk import error:', error);
-    return NextResponse.json<ApiResponse<never>>(
-      { success: false, error: 'Internal server error' },
+    return NextResponse.json(
+      { success: false, error: 'Failed to import transactions' },
       { status: 500 }
     );
   }

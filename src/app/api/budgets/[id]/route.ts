@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ObjectId } from 'mongodb';
+import { getServerSession } from '@/lib/auth';
 import { connectToDatabase } from '@/lib/mongodb';
-import { verifyToken } from '@/lib/jwt';
-import { budgetSchema } from '@/lib/validators';
+import { ObjectId } from 'mongodb';
 import type { Budget, ApiResponse } from '@/types';
 
 export async function GET(
@@ -10,46 +9,47 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
+    const session = await getServerSession(request);
+    if (!session) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const token = authHeader.substring(7);
-    const payload = await verifyToken(token);
-    if (!payload) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Invalid token' },
-        { status: 401 }
-      );
-    }
-
     const db = await connectToDatabase();
-    const budgetsCollection = db.collection<Budget>('budgets');
+    const budgetsCollection = db.collection('budgets');
 
-    const budget = await budgetsCollection.findOne({
+    const budgetDoc = await budgetsCollection.findOne({
       _id: new ObjectId(params.id),
-      userId: payload.userId,
+      userId: session.userId,
     });
 
-    if (!budget) {
+    if (!budgetDoc) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Budget not found' },
         { status: 404 }
       );
     }
 
+    const budget: Budget = {
+      _id: budgetDoc._id.toString(),
+      userId: budgetDoc.userId,
+      name: budgetDoc.name,
+      period: budgetDoc.period,
+      startDate: budgetDoc.startDate,
+      endDate: budgetDoc.endDate,
+      categories: budgetDoc.categories,
+      totalIncome: budgetDoc.totalIncome,
+      totalExpenses: budgetDoc.totalExpenses,
+      status: budgetDoc.status,
+      healthScore: budgetDoc.healthScore,
+      createdAt: budgetDoc.createdAt,
+      updatedAt: budgetDoc.updatedAt,
+    };
+
     return NextResponse.json<ApiResponse<Budget>>(
-      {
-        success: true,
-        data: {
-          ...budget,
-          _id: budget._id.toString(),
-        },
-      },
+      { success: true, data: budget },
       { status: 200 }
     );
   } catch (error) {
@@ -66,85 +66,118 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
+    const session = await getServerSession(request);
+    if (!session) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const token = authHeader.substring(7);
-    const payload = await verifyToken(token);
-    if (!payload) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Invalid token' },
-        { status: 401 }
-      );
-    }
-
     const body = await request.json();
-    const validation = budgetSchema.partial().safeParse(body);
-    if (!validation.success) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: validation.error.errors[0].message },
-        { status: 400 }
-      );
-    }
+    const { name, categories, status } = body;
 
     const db = await connectToDatabase();
-    const budgetsCollection = db.collection<Budget>('budgets');
+    const budgetsCollection = db.collection('budgets');
+    const categoriesCollection = db.collection('categories');
 
-    const updateData: Record<string, unknown> = {
-      ...validation.data,
-      updatedAt: new Date(),
-    };
+    const budgetDoc = await budgetsCollection.findOne({
+      _id: new ObjectId(params.id),
+      userId: session.userId,
+    });
 
-    if (validation.data.startDate) {
-      updateData.startDate = new Date(validation.data.startDate);
-    }
-    if (validation.data.endDate) {
-      updateData.endDate = new Date(validation.data.endDate);
-    }
-
-    if (validation.data.categoryLimits) {
-      const categoriesCollection = db.collection('categories');
-      const categoryIds = validation.data.categoryLimits.map(cl => new ObjectId(cl.categoryId));
-      const categories = await categoriesCollection
-        .find({ _id: { $in: categoryIds } })
-        .toArray();
-
-      const categoryMap = new Map(categories.map(cat => [cat._id.toString(), cat.name]));
-
-      updateData.categoryLimits = validation.data.categoryLimits.map(cl => ({
-        categoryId: cl.categoryId,
-        categoryName: categoryMap.get(cl.categoryId) || 'Unknown',
-        limit: cl.limit,
-        spent: 0,
-      }));
-    }
-
-    const result = await budgetsCollection.findOneAndUpdate(
-      { _id: new ObjectId(params.id), userId: payload.userId },
-      { $set: updateData },
-      { returnDocument: 'after' }
-    );
-
-    if (!result) {
+    if (!budgetDoc) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Budget not found' },
         { status: 404 }
       );
     }
 
+    const updateData: Record<string, unknown> = {
+      updatedAt: new Date(),
+    };
+
+    if (name) {
+      updateData.name = name;
+    }
+
+    if (status) {
+      updateData.status = status;
+    }
+
+    if (categories && Array.isArray(categories)) {
+      const categoryIds = categories.map((c) => new ObjectId(c.categoryId));
+      const categoryDocs = await categoriesCollection
+        .find({ _id: { $in: categoryIds }, userId: session.userId })
+        .toArray();
+
+      if (categoryDocs.length !== categories.length) {
+        return NextResponse.json<ApiResponse<never>>(
+          { success: false, error: 'One or more categories not found' },
+          { status: 404 }
+        );
+      }
+
+      const totalIncome = categories
+        .filter((c) => {
+          const cat = categoryDocs.find((cd) => cd._id.toString() === c.categoryId);
+          return cat?.type === 'income';
+        })
+        .reduce((sum, c) => sum + c.allocatedAmount, 0);
+
+      const totalExpenses = categories
+        .filter((c) => {
+          const cat = categoryDocs.find((cd) => cd._id.toString() === c.categoryId);
+          return cat?.type === 'expense';
+        })
+        .reduce((sum, c) => sum + c.allocatedAmount, 0);
+
+      const budgetCategories = categories.map((c) => {
+        const cat = categoryDocs.find((cd) => cd._id.toString() === c.categoryId);
+        const existingCategory = budgetDoc.categories.find(
+          (bc: { categoryId: string }) => bc.categoryId === c.categoryId
+        );
+        return {
+          categoryId: c.categoryId,
+          categoryName: cat?.name || '',
+          allocatedAmount: c.allocatedAmount,
+          spentAmount: existingCategory?.spentAmount || 0,
+          percentage: totalExpenses > 0 ? (c.allocatedAmount / totalExpenses) * 100 : 0,
+        };
+      });
+
+      updateData.categories = budgetCategories;
+      updateData.totalIncome = totalIncome;
+      updateData.totalExpenses = totalExpenses;
+    }
+
+    await budgetsCollection.updateOne(
+      { _id: new ObjectId(params.id) },
+      { $set: updateData }
+    );
+
+    const updatedBudgetDoc = await budgetsCollection.findOne({
+      _id: new ObjectId(params.id),
+    });
+
+    const budget: Budget = {
+      _id: updatedBudgetDoc!._id.toString(),
+      userId: updatedBudgetDoc!.userId,
+      name: updatedBudgetDoc!.name,
+      period: updatedBudgetDoc!.period,
+      startDate: updatedBudgetDoc!.startDate,
+      endDate: updatedBudgetDoc!.endDate,
+      categories: updatedBudgetDoc!.categories,
+      totalIncome: updatedBudgetDoc!.totalIncome,
+      totalExpenses: updatedBudgetDoc!.totalExpenses,
+      status: updatedBudgetDoc!.status,
+      healthScore: updatedBudgetDoc!.healthScore,
+      createdAt: updatedBudgetDoc!.createdAt,
+      updatedAt: updatedBudgetDoc!.updatedAt,
+    };
+
     return NextResponse.json<ApiResponse<Budget>>(
-      {
-        success: true,
-        data: {
-          ...result,
-          _id: result._id.toString(),
-        },
-      },
+      { success: true, data: budget },
       { status: 200 }
     );
   } catch (error) {
@@ -161,29 +194,20 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
+    const session = await getServerSession(request);
+    if (!session) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const token = authHeader.substring(7);
-    const payload = await verifyToken(token);
-    if (!payload) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Invalid token' },
-        { status: 401 }
-      );
-    }
-
     const db = await connectToDatabase();
-    const budgetsCollection = db.collection<Budget>('budgets');
+    const budgetsCollection = db.collection('budgets');
 
     const result = await budgetsCollection.deleteOne({
       _id: new ObjectId(params.id),
-      userId: payload.userId,
+      userId: session.userId,
     });
 
     if (result.deletedCount === 0) {
@@ -194,10 +218,7 @@ export async function DELETE(
     }
 
     return NextResponse.json<ApiResponse<never>>(
-      {
-        success: true,
-        message: 'Budget deleted successfully',
-      },
+      { success: true, message: 'Budget deleted successfully' },
       { status: 200 }
     );
   } catch (error) {

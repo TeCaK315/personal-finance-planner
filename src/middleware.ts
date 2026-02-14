@@ -1,21 +1,44 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { verifyToken } from '@/lib/jwt';
+import { verifyToken } from '@/lib/auth';
+
+const protectedRoutes = [
+  '/dashboard',
+  '/budgets',
+  '/transactions',
+  '/recommendations',
+  '/analytics',
+  '/api/budgets',
+  '/api/transactions',
+  '/api/categories',
+  '/api/recommendations',
+  '/api/analytics',
+  '/api/alerts',
+  '/api/auth/me',
+  '/api/auth/logout',
+];
+
+const authRoutes = ['/login', '/register'];
 
 export function middleware(request: NextRequest) {
-  const token = request.cookies.get('accessToken')?.value || request.headers.get('authorization')?.replace('Bearer ', '');
+  const { pathname } = request.nextUrl;
+  const token = request.cookies.get('auth-token')?.value;
 
-  const protectedPaths = ['/dashboard', '/budgets', '/transactions', '/reports', '/recommendations', '/settings'];
-  const isProtectedPath = protectedPaths.some(path => request.nextUrl.pathname.startsWith(path));
+  const isProtectedRoute = protectedRoutes.some((route) => pathname.startsWith(route));
+  const isAuthRoute = authRoutes.some((route) => pathname.startsWith(route));
 
-  if (isProtectedPath) {
+  if (isProtectedRoute) {
     if (!token) {
-      return NextResponse.redirect(new URL('/login', request.url));
+      const url = new URL('/login', request.url);
+      url.searchParams.set('redirect', pathname);
+      return NextResponse.redirect(url);
     }
 
     const payload = verifyToken(token);
     if (!payload) {
-      return NextResponse.redirect(new URL('/login', request.url));
+      const response = NextResponse.redirect(new URL('/login', request.url));
+      response.cookies.delete('auth-token');
+      return response;
     }
 
     const requestHeaders = new Headers(request.headers);
@@ -29,6 +52,13 @@ export function middleware(request: NextRequest) {
     });
   }
 
+  if (isAuthRoute && token) {
+    const payload = verifyToken(token);
+    if (payload) {
+      return NextResponse.redirect(new URL('/dashboard', request.url));
+    }
+  }
+
   return NextResponse.next();
 }
 
@@ -37,14 +67,17 @@ export const config = {
     '/dashboard/:path*',
     '/budgets/:path*',
     '/transactions/:path*',
-    '/reports/:path*',
     '/recommendations/:path*',
-    '/settings/:path*',
+    '/analytics/:path*',
     '/api/budgets/:path*',
     '/api/transactions/:path*',
     '/api/categories/:path*',
-    '/api/reports/:path*',
-    '/api/ai/:path*',
-    '/api/user/:path*',
+    '/api/recommendations/:path*',
+    '/api/analytics/:path*',
+    '/api/alerts/:path*',
+    '/api/auth/me',
+    '/api/auth/logout',
+    '/login',
+    '/register',
   ],
 };
