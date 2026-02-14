@@ -1,11 +1,11 @@
 import { MongoClient, Db } from 'mongodb';
 
 if (!process.env.MONGODB_URI) {
-  throw new Error('Please add your MongoDB URI to .env.local');
+  throw new Error('Please add your MONGODB_URI to .env.local');
 }
 
 if (!process.env.MONGODB_DB_NAME) {
-  throw new Error('Please add your MongoDB database name to .env.local');
+  throw new Error('Please add your MONGODB_DB_NAME to .env.local');
 }
 
 const uri = process.env.MONGODB_URI;
@@ -22,8 +22,7 @@ export async function connectToDatabase(): Promise<{ client: MongoClient; db: Db
   const client = await MongoClient.connect(uri, {
     maxPoolSize: 10,
     minPoolSize: 5,
-    maxIdleTimeMS: 60000,
-    serverSelectionTimeoutMS: 5000,
+    maxIdleTimeMS: 30000,
   });
 
   const db = client.db(dbName);
@@ -42,27 +41,21 @@ export async function getDb(): Promise<Db> {
 }
 
 async function createIndexes(db: Db): Promise<void> {
-  const usersCollection = db.collection('users');
-  await usersCollection.createIndex({ email: 1 }, { unique: true });
+  await db.collection('users').createIndex({ email: 1 }, { unique: true });
 
-  const categoriesCollection = db.collection('categories');
-  await categoriesCollection.createIndex({ userId: 1, type: 1 });
+  await db.collection('transactions').createIndex({ userId: 1, date: -1 });
+  await db.collection('transactions').createIndex({ userId: 1, type: 1 });
+  await db.collection('transactions').createIndex({ userId: 1, category: 1 });
 
-  const budgetsCollection = db.collection('budgets');
-  await budgetsCollection.createIndex({ userId: 1, status: 1 });
-  await budgetsCollection.createIndex({ userId: 1, startDate: 1, endDate: 1 });
+  await db.collection('budgets').createIndex({ userId: 1, month: 1 }, { unique: true });
 
-  const transactionsCollection = db.collection('transactions');
-  await transactionsCollection.createIndex({ userId: 1, date: -1 });
-  await transactionsCollection.createIndex({ userId: 1, budgetId: 1 });
-  await transactionsCollection.createIndex({ userId: 1, categoryId: 1 });
-  await transactionsCollection.createIndex({ userId: 1, type: 1, date: -1 });
+  await db.collection('financial_goals').createIndex({ userId: 1, status: 1 });
+  await db.collection('financial_goals').createIndex({ userId: 1, deadline: 1 });
 
-  const recommendationsCollection = db.collection('recommendations');
-  await recommendationsCollection.createIndex({ userId: 1, status: 1, createdAt: -1 });
-  await recommendationsCollection.createIndex({ userId: 1, priority: 1 });
+  await db.collection('ai_recommendations').createIndex({ userId: 1, dismissed: 1, generatedAt: -1 });
+  await db.collection('ai_recommendations').createIndex({ userId: 1, type: 1 });
 
-  const alertsCollection = db.collection('alerts');
-  await alertsCollection.createIndex({ userId: 1, dismissed: 1, createdAt: -1 });
-  await alertsCollection.createIndex({ userId: 1, severity: 1 });
+  await db.collection('sessions').createIndex({ sessionId: 1 }, { unique: true });
+  await db.collection('sessions').createIndex({ userId: 1 });
+  await db.collection('sessions').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 }

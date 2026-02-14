@@ -6,12 +6,15 @@ const nextConfig = {
   swcMinify: true,
   images: {
     domains: [],
-  },
-  env: {
-    NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000',
+    formats: ['image/avif', 'image/webp'],
   },
   experimental: {
-    serverActions: true,
+    serverActions: {
+      bodySizeLimit: '2mb',
+    },
+  },
+  env: {
+    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
   },
 };
 

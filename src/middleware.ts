@@ -1,62 +1,37 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
-import { verifyToken } from '@/lib/auth';
+import { jwtVerify } from 'jose';
 
-const protectedRoutes = [
-  '/dashboard',
-  '/budgets',
-  '/transactions',
-  '/recommendations',
-  '/analytics',
-  '/api/budgets',
-  '/api/transactions',
-  '/api/categories',
-  '/api/recommendations',
-  '/api/analytics',
-  '/api/alerts',
-  '/api/auth/me',
-  '/api/auth/logout',
-];
+const SESSION_SECRET = process.env.SESSION_SECRET || 'your-secret-key-change-in-production';
+const SECRET_KEY = new TextEncoder().encode(SESSION_SECRET);
 
-const authRoutes = ['/login', '/register'];
+const publicPaths = ['/', '/login', '/register'];
+const authPaths = ['/login', '/register'];
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
-  const token = request.cookies.get('auth-token')?.value;
 
-  const isProtectedRoute = protectedRoutes.some((route) => pathname.startsWith(route));
-  const isAuthRoute = authRoutes.some((route) => pathname.startsWith(route));
+  const token = request.cookies.get('session')?.value;
 
-  if (isProtectedRoute) {
-    if (!token) {
-      const url = new URL('/login', request.url);
-      url.searchParams.set('redirect', pathname);
-      return NextResponse.redirect(url);
+  let isAuthenticated = false;
+
+  if (token) {
+    try {
+      await jwtVerify(token, SECRET_KEY);
+      isAuthenticated = true;
+    } catch (error) {
+      isAuthenticated = false;
     }
-
-    const payload = verifyToken(token);
-    if (!payload) {
-      const response = NextResponse.redirect(new URL('/login', request.url));
-      response.cookies.delete('auth-token');
-      return response;
-    }
-
-    const requestHeaders = new Headers(request.headers);
-    requestHeaders.set('x-user-id', payload.userId);
-    requestHeaders.set('x-user-email', payload.email);
-
-    return NextResponse.next({
-      request: {
-        headers: requestHeaders,
-      },
-    });
   }
 
-  if (isAuthRoute && token) {
-    const payload = verifyToken(token);
-    if (payload) {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
+  if (authPaths.includes(pathname) && isAuthenticated) {
+    return NextResponse.redirect(new URL('/dashboard', request.url));
+  }
+
+  if (!publicPaths.includes(pathname) && !authPaths.includes(pathname) && !isAuthenticated) {
+    const loginUrl = new URL('/login', request.url);
+    loginUrl.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(loginUrl);
   }
 
   return NextResponse.next();
@@ -64,20 +39,6 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/dashboard/:path*',
-    '/budgets/:path*',
-    '/transactions/:path*',
-    '/recommendations/:path*',
-    '/analytics/:path*',
-    '/api/budgets/:path*',
-    '/api/transactions/:path*',
-    '/api/categories/:path*',
-    '/api/recommendations/:path*',
-    '/api/analytics/:path*',
-    '/api/alerts/:path*',
-    '/api/auth/me',
-    '/api/auth/logout',
-    '/login',
-    '/register',
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],
 };

@@ -1,40 +1,40 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { connectToDatabase } from '@/lib/mongodb';
-import { verifyPassword, generateToken } from '@/lib/auth';
-import { loginSchema } from '@/lib/validators';
-import type { User, ApiResponse } from '@/types';
+import { getDb } from '@/lib/mongodb';
+import { verifyPassword, createSession } from '@/lib/auth';
+import type { LoginRequest, ApiResponse, User } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json();
+    const body: LoginRequest = await request.json();
     
-    const validation = loginSchema.safeParse(body);
-    if (!validation.success) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: validation.error.errors[0].message },
-        { status: 400 }
-      );
+    const { email, password } = body;
+
+    if (!email || !password) {
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'Email and password are required'
+      }, { status: 400 });
     }
 
-    const { email, password } = validation.data;
-
-    const db = await connectToDatabase();
+    const db = await getDb();
     const usersCollection = db.collection('users');
 
-    const userDoc = await usersCollection.findOne({ email });
+    const userDoc = await usersCollection.findOne({ email: email.toLowerCase() });
+    
     if (!userDoc) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Invalid email or password' },
-        { status: 401 }
-      );
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'Invalid email or password'
+      }, { status: 401 });
     }
 
     const isPasswordValid = await verifyPassword(password, userDoc.password);
+    
     if (!isPasswordValid) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Invalid email or password' },
-        { status: 401 }
-      );
+      return NextResponse.json<ApiResponse>({
+        success: false,
+        error: 'Invalid email or password'
+      }, { status: 401 });
     }
 
     const user: User = {
@@ -42,30 +42,33 @@ export async function POST(request: NextRequest) {
       email: userDoc.email,
       name: userDoc.name,
       createdAt: userDoc.createdAt,
-      updatedAt: userDoc.updatedAt,
+      updatedAt: userDoc.updatedAt
     };
 
-    const token = generateToken({ userId: user._id, email: user.email });
+    const sessionId = await createSession({
+      id: user._id,
+      email: user.email,
+      name: user.name
+    });
 
-    const response = NextResponse.json<ApiResponse<{ user: User; token: string }>>(
-      { success: true, data: { user, token } },
-      { status: 200 }
-    );
+    const response = NextResponse.json<ApiResponse>({
+      success: true,
+      data: { user, sessionId }
+    });
 
-    response.cookies.set('auth-token', token, {
+    response.cookies.set('session', sessionId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7,
-      path: '/',
+      maxAge: 60 * 60 * 24 * 7
     });
 
     return response;
   } catch (error) {
     console.error('Login error:', error);
-    return NextResponse.json<ApiResponse<never>>(
-      { success: false, error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json<ApiResponse>({
+      success: false,
+      error: 'Internal server error during login'
+    }, { status: 500 });
   }
 }
