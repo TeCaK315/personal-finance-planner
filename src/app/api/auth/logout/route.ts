@@ -4,25 +4,20 @@ import type { ApiResponse } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const sessionId = request.cookies.get('session')?.value;
+    await destroySession();
 
-    if (sessionId) {
-      await destroySession(sessionId);
-    }
-
-    const response = NextResponse.json<ApiResponse>({
-      success: true,
-      message: 'Logged out successfully'
-    });
-
-    response.cookies.delete('session');
-
-    return response;
+    return NextResponse.json(
+      {
+        success: true,
+        message: 'Logged out successfully',
+      } as ApiResponse<never>,
+      { status: 200 }
+    );
   } catch (error) {
     console.error('Logout error:', error);
-    return NextResponse.json<ApiResponse>({
-      success: false,
-      error: 'Internal server error during logout'
-    }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: 'Internal server error' } as ApiResponse<never>,
+      { status: 500 }
+    );
   }
 }

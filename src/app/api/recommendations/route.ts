@@ -3,11 +3,9 @@ import { ObjectId } from 'mongodb';
 import { getDb } from '@/lib/mongodb';
 import { getSession } from '@/lib/auth';
 import { generateFinancialRecommendations } from '@/lib/openai';
-import type { ApiResponse, AIRecommendation, Transaction, Budget, FinancialGoal, GenerateRecommendationsRequest } from '@/types';
+import { AIRecommendation, Budget, Transaction } from '@/types';
 
-export async function GET(
-  request: NextRequest
-): Promise<NextResponse<ApiResponse<AIRecommendation[]>>> {
+export async function POST(request: NextRequest) {
   try {
     const session = await getSession(request);
     if (!session) {
@@ -17,138 +15,103 @@ export async function GET(
       );
     }
 
-    const { searchParams } = new URL(request.url);
-    const dismissedParam = searchParams.get('dismissed');
+    const body = await request.json();
+    const { budgetId, forceRegenerate } = body;
 
     const db = await getDb();
-    const recommendationsCollection = db.collection<AIRecommendation>('recommendations');
 
-    const query: any = { userId: session.id };
-    if (dismissedParam !== null) {
-      query.dismissed = dismissedParam === 'true';
-    }
-
-    const recommendations = await recommendationsCollection
-      .find(query)
-      .sort({ generatedAt: -1 })
-      .limit(20)
-      .toArray();
-
-    const formattedRecommendations: AIRecommendation[] = recommendations.map((rec) => ({
-      ...rec,
-      _id: rec._id.toString(),
-    }));
-
-    return NextResponse.json({
-      success: true,
-      data: formattedRecommendations,
-    });
-  } catch (error) {
-    console.error('Error fetching recommendations:', error);
-    return NextResponse.json(
-      { success: false, error: 'Internal server error' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function POST(
-  request: NextRequest
-): Promise<NextResponse<ApiResponse<AIRecommendation[]>>> {
-  try {
-    const session = await getSession(request);
-    if (!session) {
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    const body: GenerateRecommendationsRequest = await request.json();
-    const forceRefresh = body.forceRefresh || false;
-
-    const db = await getDb();
-    const recommendationsCollection = db.collection<AIRecommendation>('recommendations');
-
-    if (!forceRefresh) {
-      const recentRecommendations = await recommendationsCollection
+    if (!forceRegenerate) {
+      const recentRecommendations = await db.collection<AIRecommendation>('recommendations')
         .find({
-          userId: session.id,
-          generatedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          userId: session.userId,
+          generatedAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
         })
+        .sort({ generatedAt: -1 })
         .toArray();
 
       if (recentRecommendations.length > 0) {
-        const formattedRecommendations: AIRecommendation[] = recentRecommendations.map((rec) => ({
-          ...rec,
-          _id: rec._id.toString(),
-        }));
-
         return NextResponse.json({
           success: true,
-          data: formattedRecommendations,
-          message: 'Using cached recommendations',
+          data: recentRecommendations
         });
       }
     }
 
-    const transactionsCollection = db.collection<Transaction>('transactions');
-    const budgetsCollection = db.collection<Budget>('budgets');
-    const goalsCollection = db.collection<FinancialGoal>('goals');
+    const budgetFilter: any = { userId: session.userId };
+    if (budgetId) {
+      if (!ObjectId.isValid(budgetId)) {
+        return NextResponse.json(
+          { success: false, error: 'Invalid budget ID' },
+          { status: 400 }
+        );
+      }
+      budgetFilter._id = new ObjectId(budgetId);
+    }
 
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const threeMonthsAgo = new Date();
-    threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
+    const budgets = await db.collection<Budget>('budgets')
+      .find(budgetFilter)
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .toArray();
 
-    const [transactions, budget, goals] = await Promise.all([
-      transactionsCollection
-        .find({
-          userId: session.id,
-          date: { $gte: threeMonthsAgo },
-        })
-        .sort({ date: -1 })
-        .limit(100)
-        .toArray(),
-      budgetsCollection.findOne({
-        userId: session.id,
-        month: currentMonth,
-      }),
-      goalsCollection
-        .find({
-          userId: session.id,
-          status: 'active',
-        })
-        .toArray(),
-    ]);
+    if (budgets.length === 0) {
+      return NextResponse.json({
+        success: true,
+        data: []
+      });
+    }
 
-    const recommendations = await generateFinancialRecommendations({
+    const budgetIds = budgets.map(b => b._id.toString());
+    const transactions = await db.collection<Transaction>('transactions')
+      .find({
+        userId: session.userId,
+        budgetId: { $in: budgetIds }
+      })
+      .sort({ date: -1 })
+      .limit(200)
+      .toArray();
+
+    const userData = {
+      budgets,
       transactions,
-      budget,
-      goals,
-      userId: session.id,
-    });
+      userName: session.name
+    };
 
-    const recommendationsToInsert = recommendations.map((rec) => ({
-      ...rec,
-      userId: session.id,
+    const aiRecommendations = await generateFinancialRecommendations(userData);
+
+    const recommendationsToInsert: Omit<AIRecommendation, '_id'>[] = aiRecommendations.map(rec => ({
+      userId: session.userId,
+      title: rec.title,
+      description: rec.description,
+      priority: rec.priority,
+      category: rec.category,
+      potentialSavings: rec.potentialSavings,
+      actionItems: rec.actionItems,
       generatedAt: new Date(),
-      dismissed: false,
+      isRead: false
     }));
 
     if (recommendationsToInsert.length > 0) {
-      await recommendationsCollection.insertMany(recommendationsToInsert as any);
-    }
+      const result = await db.collection<AIRecommendation>('recommendations')
+        .insertMany(recommendationsToInsert as AIRecommendation[]);
 
-    const formattedRecommendations: AIRecommendation[] = recommendationsToInsert.map((rec, index) => ({
-      ...rec,
-      _id: new ObjectId().toString(),
-    }));
+      const insertedRecommendations = await db.collection<AIRecommendation>('recommendations')
+        .find({
+          _id: { $in: Object.values(result.insertedIds) }
+        })
+        .toArray();
+
+      return NextResponse.json({
+        success: true,
+        data: insertedRecommendations
+      });
+    }
 
     return NextResponse.json({
       success: true,
-      data: formattedRecommendations,
-      message: 'Recommendations generated successfully',
+      data: []
     });
+
   } catch (error) {
     console.error('Error generating recommendations:', error);
     return NextResponse.json(

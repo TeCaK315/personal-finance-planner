@@ -2,13 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ObjectId } from 'mongodb';
 import { getDb } from '@/lib/mongodb';
 import { getSession } from '@/lib/auth';
-import { validateTransaction } from '@/lib/validators';
-import type { ApiResponse, Transaction, UpdateTransactionRequest } from '@/types';
+import { Transaction, Budget } from '@/types';
 
-export async function PUT(
+export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
-): Promise<NextResponse<ApiResponse<Transaction>>> {
+) {
   try {
     const session = await getSession(request);
     if (!session) {
@@ -18,30 +17,71 @@ export async function PUT(
       );
     }
 
-    const { id } = params;
-    if (!ObjectId.isValid(id)) {
+    const transactionId = params.id;
+    if (!ObjectId.isValid(transactionId)) {
       return NextResponse.json(
         { success: false, error: 'Invalid transaction ID' },
         { status: 400 }
       );
     }
 
-    const body: UpdateTransactionRequest = await request.json();
+    const db = await getDb();
     
-    const validation = validateTransaction(body);
-    if (!validation.valid) {
+    const transaction = await db.collection<Transaction>('transactions').findOne({
+      _id: new ObjectId(transactionId),
+      userId: session.userId
+    });
+
+    if (!transaction) {
       return NextResponse.json(
-        { success: false, error: validation.error },
+        { success: false, error: 'Transaction not found' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: transaction
+    });
+
+  } catch (error) {
+    console.error('Error fetching transaction:', error);
+    return NextResponse.json(
+      { success: false, error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const session = await getSession(request);
+    if (!session) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const transactionId = params.id;
+    if (!ObjectId.isValid(transactionId)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid transaction ID' },
         { status: 400 }
       );
     }
 
-    const db = await getDb();
-    const transactionsCollection = db.collection<Transaction>('transactions');
+    const body = await request.json();
+    const { amount, categoryId, categoryName, description, date } = body;
 
-    const existingTransaction = await transactionsCollection.findOne({
-      _id: new ObjectId(id),
-      userId: session.id,
+    const db = await getDb();
+
+    const existingTransaction = await db.collection<Transaction>('transactions').findOne({
+      _id: new ObjectId(transactionId),
+      userId: session.userId
     });
 
     if (!existingTransaction) {
@@ -51,37 +91,83 @@ export async function PUT(
       );
     }
 
-    const updateData: Partial<Transaction> = {
-      ...body,
-      updatedAt: new Date(),
+    const updateData: any = {
+      updatedAt: new Date()
     };
 
-    if (body.date) {
-      updateData.date = new Date(body.date);
+    if (amount !== undefined) {
+      updateData.amount = amount;
+    }
+    if (categoryId !== undefined) {
+      updateData.categoryId = categoryId;
+    }
+    if (categoryName !== undefined) {
+      updateData.categoryName = categoryName;
+    }
+    if (description !== undefined) {
+      updateData.description = description;
+    }
+    if (date !== undefined) {
+      updateData.date = new Date(date);
     }
 
-    const result = await transactionsCollection.findOneAndUpdate(
-      { _id: new ObjectId(id), userId: session.id },
-      { $set: updateData },
-      { returnDocument: 'after' }
+    if (existingTransaction.type === 'expense' && (amount !== undefined || categoryId !== undefined)) {
+      const oldAmount = existingTransaction.amount;
+      const newAmount = amount !== undefined ? amount : oldAmount;
+      const oldCategoryId = existingTransaction.categoryId;
+      const newCategoryId = categoryId !== undefined ? categoryId : oldCategoryId;
+
+      if (oldCategoryId === newCategoryId) {
+        const amountDiff = newAmount - oldAmount;
+        await db.collection<Budget>('budgets').updateOne(
+          {
+            _id: new ObjectId(existingTransaction.budgetId),
+            'categories.categoryId': oldCategoryId
+          },
+          {
+            $inc: { 'categories.$.spentAmount': amountDiff },
+            $set: { updatedAt: new Date() }
+          }
+        );
+      } else {
+        await db.collection<Budget>('budgets').updateOne(
+          {
+            _id: new ObjectId(existingTransaction.budgetId),
+            'categories.categoryId': oldCategoryId
+          },
+          {
+            $inc: { 'categories.$.spentAmount': -oldAmount },
+            $set: { updatedAt: new Date() }
+          }
+        );
+
+        await db.collection<Budget>('budgets').updateOne(
+          {
+            _id: new ObjectId(existingTransaction.budgetId),
+            'categories.categoryId': newCategoryId
+          },
+          {
+            $inc: { 'categories.$.spentAmount': newAmount },
+            $set: { updatedAt: new Date() }
+          }
+        );
+      }
+    }
+
+    await db.collection<Transaction>('transactions').updateOne(
+      { _id: new ObjectId(transactionId) },
+      { $set: updateData }
     );
 
-    if (!result) {
-      return NextResponse.json(
-        { success: false, error: 'Failed to update transaction' },
-        { status: 500 }
-      );
-    }
-
-    const updatedTransaction: Transaction = {
-      ...result,
-      _id: result._id.toString(),
-    };
+    const updatedTransaction = await db.collection<Transaction>('transactions').findOne({
+      _id: new ObjectId(transactionId)
+    });
 
     return NextResponse.json({
       success: true,
-      data: updatedTransaction,
+      data: updatedTransaction
     });
+
   } catch (error) {
     console.error('Error updating transaction:', error);
     return NextResponse.json(
@@ -94,7 +180,7 @@ export async function PUT(
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
-): Promise<NextResponse<ApiResponse>> {
+) {
   try {
     const session = await getSession(request);
     if (!session) {
@@ -104,8 +190,8 @@ export async function DELETE(
       );
     }
 
-    const { id } = params;
-    if (!ObjectId.isValid(id)) {
+    const transactionId = params.id;
+    if (!ObjectId.isValid(transactionId)) {
       return NextResponse.json(
         { success: false, error: 'Invalid transaction ID' },
         { status: 400 }
@@ -113,24 +199,41 @@ export async function DELETE(
     }
 
     const db = await getDb();
-    const transactionsCollection = db.collection('transactions');
 
-    const result = await transactionsCollection.deleteOne({
-      _id: new ObjectId(id),
-      userId: session.id,
+    const transaction = await db.collection<Transaction>('transactions').findOne({
+      _id: new ObjectId(transactionId),
+      userId: session.userId
     });
 
-    if (result.deletedCount === 0) {
+    if (!transaction) {
       return NextResponse.json(
         { success: false, error: 'Transaction not found' },
         { status: 404 }
       );
     }
 
+    if (transaction.type === 'expense') {
+      await db.collection<Budget>('budgets').updateOne(
+        {
+          _id: new ObjectId(transaction.budgetId),
+          'categories.categoryId': transaction.categoryId
+        },
+        {
+          $inc: { 'categories.$.spentAmount': -transaction.amount },
+          $set: { updatedAt: new Date() }
+        }
+      );
+    }
+
+    await db.collection<Transaction>('transactions').deleteOne({
+      _id: new ObjectId(transactionId)
+    });
+
     return NextResponse.json({
       success: true,
-      message: 'Transaction deleted successfully',
+      message: 'Transaction deleted successfully'
     });
+
   } catch (error) {
     console.error('Error deleting transaction:', error);
     return NextResponse.json(

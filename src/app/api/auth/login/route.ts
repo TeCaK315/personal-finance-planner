@@ -1,74 +1,75 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/mongodb';
+import { connectToDatabase } from '@/lib/mongodb';
 import { verifyPassword, createSession } from '@/lib/auth';
-import type { LoginRequest, ApiResponse, User } from '@/types';
+import type { ApiResponse, User } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
-    const body: LoginRequest = await request.json();
-    
+    const body = await request.json();
     const { email, password } = body;
 
     if (!email || !password) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'Email and password are required'
-      }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: 'Email and password are required' } as ApiResponse<never>,
+        { status: 400 }
+      );
     }
 
-    const db = await getDb();
+    const { db } = await connectToDatabase();
     const usersCollection = db.collection('users');
 
-    const userDoc = await usersCollection.findOne({ email: email.toLowerCase() });
-    
-    if (!userDoc) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'Invalid email or password'
-      }, { status: 401 });
+    const user = await usersCollection.findOne({ email: email.toLowerCase() });
+    if (!user) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid email or password' } as ApiResponse<never>,
+        { status: 401 }
+      );
     }
 
-    const isPasswordValid = await verifyPassword(password, userDoc.password);
-    
+    const isPasswordValid = await verifyPassword(password, user.password);
     if (!isPasswordValid) {
-      return NextResponse.json<ApiResponse>({
-        success: false,
-        error: 'Invalid email or password'
-      }, { status: 401 });
+      return NextResponse.json(
+        { success: false, error: 'Invalid email or password' } as ApiResponse<never>,
+        { status: 401 }
+      );
     }
 
-    const user: User = {
-      _id: userDoc._id.toString(),
-      email: userDoc.email,
-      name: userDoc.name,
-      createdAt: userDoc.createdAt,
-      updatedAt: userDoc.updatedAt
+    const sessionToken = await createSession({
+      userId: user._id.toString(),
+      email: user.email,
+      name: user.name,
+    });
+
+    const userData: User = {
+      _id: user._id.toString(),
+      email: user.email,
+      name: user.name,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
     };
 
-    const sessionId = await createSession({
-      id: user._id,
-      email: user.email,
-      name: user.name
-    });
+    const response = NextResponse.json(
+      {
+        success: true,
+        data: { user: userData, sessionToken },
+      } as ApiResponse<{ user: User; sessionToken: string }>,
+      { status: 200 }
+    );
 
-    const response = NextResponse.json<ApiResponse>({
-      success: true,
-      data: { user, sessionId }
-    });
-
-    response.cookies.set('session', sessionId, {
+    response.cookies.set('session', sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7
+      maxAge: 60 * 60 * 24 * 7,
+      path: '/',
     });
 
     return response;
   } catch (error) {
     console.error('Login error:', error);
-    return NextResponse.json<ApiResponse>({
-      success: false,
-      error: 'Internal server error during login'
-    }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: 'Internal server error' } as ApiResponse<never>,
+      { status: 500 }
+    );
   }
 }

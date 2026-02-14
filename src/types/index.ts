@@ -6,96 +6,111 @@ export interface User {
   updatedAt: Date;
 }
 
-export type TransactionType = 'income' | 'expense';
+export interface Budget {
+  _id: string;
+  userId: string;
+  name: string;
+  totalAmount: number;
+  period: 'monthly' | 'weekly' | 'yearly';
+  startDate: Date;
+  endDate: Date;
+  categories: CategoryAllocation[];
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-export type TransactionCategory = 
-  | 'salary' 
-  | 'freelance' 
-  | 'investment' 
-  | 'other_income'
-  | 'housing' 
-  | 'transportation' 
-  | 'food' 
-  | 'utilities' 
-  | 'healthcare' 
-  | 'entertainment' 
-  | 'shopping' 
-  | 'education' 
-  | 'other_expense';
+export interface CategoryAllocation {
+  categoryId: string;
+  categoryName: string;
+  allocatedAmount: number;
+  spentAmount: number;
+}
 
 export interface Transaction {
   _id: string;
   userId: string;
-  type: TransactionType;
-  category: TransactionCategory;
+  budgetId: string;
+  type: 'income' | 'expense';
   amount: number;
+  categoryId: string;
+  categoryName: string;
   description: string;
   date: Date;
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface Budget {
+export interface Category {
   _id: string;
-  userId: string;
-  month: string;
-  categoryLimits: {
-    category: TransactionCategory;
-    limit: number;
-  }[];
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface BudgetSummary {
-  totalIncome: number;
-  totalExpenses: number;
-  balance: number;
-  categoryBreakdown: {
-    category: TransactionCategory;
-    spent: number;
-    limit: number;
-    percentage: number;
-  }[];
-  month: string;
-}
-
-export interface FinancialGoal {
-  _id: string;
-  userId: string;
-  title: string;
-  description: string;
-  targetAmount: number;
-  currentAmount: number;
-  deadline: Date;
-  status: 'active' | 'completed' | 'cancelled';
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-export interface GoalProgress {
-  goalId: string;
-  percentage: number;
-  remainingAmount: number;
-  daysRemaining: number;
-  monthlyRequiredSavings: number;
-  onTrack: boolean;
+  name: string;
+  type: 'income' | 'expense';
+  icon: string;
+  color: string;
+  isDefault: boolean;
+  userId?: string;
 }
 
 export interface AIRecommendation {
   _id: string;
   userId: string;
-  type: 'savings' | 'spending' | 'investment' | 'goal' | 'budget';
   title: string;
   description: string;
   priority: 'high' | 'medium' | 'low';
+  category: string;
   potentialSavings?: number;
   actionItems: string[];
   generatedAt: Date;
-  dismissed: boolean;
+  isRead: boolean;
 }
 
-export interface ApiResponse<T = any> {
+export interface BudgetSummary {
+  budgetId: string;
+  totalBudget: number;
+  totalSpent: number;
+  totalIncome: number;
+  remainingBudget: number;
+  percentageUsed: number;
+  categoryBreakdown: CategoryBreakdown[];
+  topSpendingCategories: CategorySpending[];
+  dailyAverageSpending: number;
+  projectedEndBalance: number;
+}
+
+export interface CategoryBreakdown {
+  categoryId: string;
+  categoryName: string;
+  allocated: number;
+  spent: number;
+  remaining: number;
+  percentageUsed: number;
+}
+
+export interface CategorySpending {
+  categoryName: string;
+  amount: number;
+  percentage: number;
+  transactionCount: number;
+}
+
+export interface TransactionFilters {
+  budgetId?: string;
+  categoryId?: string;
+  type?: 'income' | 'expense';
+  startDate?: Date;
+  endDate?: Date;
+  minAmount?: number;
+  maxAmount?: number;
+  search?: string;
+}
+
+export interface SpendingTrend {
+  date: string;
+  income: number;
+  expenses: number;
+  net: number;
+}
+
+export interface ApiResponse<T> {
   success: boolean;
   data?: T;
   error?: string;
@@ -113,64 +128,9 @@ export interface PaginatedResponse<T> {
   };
 }
 
-export interface TransactionFilters {
-  type?: TransactionType;
-  category?: TransactionCategory;
-  startDate?: Date;
-  endDate?: Date;
-  minAmount?: number;
-  maxAmount?: number;
-}
-
-export interface SessionUser {
-  id: string;
+export interface SessionData {
+  userId: string;
   email: string;
   name: string;
-}
-
-export interface LoginRequest {
-  email: string;
-  password: string;
-}
-
-export interface RegisterRequest {
-  email: string;
-  password: string;
-  name: string;
-}
-
-export interface CreateTransactionRequest {
-  type: TransactionType;
-  category: TransactionCategory;
-  amount: number;
-  description: string;
-  date: Date;
-}
-
-export interface UpdateTransactionRequest extends Partial<CreateTransactionRequest> {}
-
-export interface CreateGoalRequest {
-  title: string;
-  description: string;
-  targetAmount: number;
-  currentAmount: number;
-  deadline: Date;
-}
-
-export interface UpdateGoalRequest extends Partial<CreateGoalRequest> {}
-
-export interface UpdateGoalProgressRequest {
-  amount: number;
-}
-
-export interface CreateBudgetRequest {
-  month: string;
-  categoryLimits: {
-    category: TransactionCategory;
-    limit: number;
-  }[];
-}
-
-export interface GenerateRecommendationsRequest {
-  forceRefresh?: boolean;
+  expiresAt: Date;
 }

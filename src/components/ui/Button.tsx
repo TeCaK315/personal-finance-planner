@@ -1,27 +1,33 @@
+'use client';
+
 import React from 'react';
+import { Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
   size?: 'sm' | 'md' | 'lg';
+  loading?: boolean;
   children: React.ReactNode;
 }
 
-export const Button: React.FC<ButtonProps> = ({
+export function Button({
   variant = 'primary',
   size = 'md',
-  children,
-  className = '',
+  loading = false,
   disabled,
+  className,
+  children,
   ...props
-}) => {
-  const baseStyles = 'font-semibold rounded-lg transition-all duration-200 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed';
+}: ButtonProps) {
+  const baseStyles = 'inline-flex items-center justify-center font-medium rounded-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[hsl(var(--background))] disabled:opacity-50 disabled:cursor-not-allowed';
   
   const variants = {
-    primary: 'gradient-primary text-white hover:opacity-90 shadow-lg hover:shadow-xl',
-    secondary: 'gradient-accent text-white hover:opacity-90 shadow-lg hover:shadow-xl',
-    outline: 'border-2 border-primary text-primary hover:bg-primary hover:text-white',
-    ghost: 'text-slate-300 hover:bg-white/10',
-    danger: 'bg-error text-white hover:bg-red-600 shadow-lg hover:shadow-xl',
+    primary: 'gradient-primary text-white hover:opacity-90 focus:ring-[hsl(var(--primary))] shadow-lg shadow-[hsl(var(--primary))]/25',
+    secondary: 'bg-[hsl(var(--secondary))] text-white hover:bg-[hsl(var(--secondary))]/90 focus:ring-[hsl(var(--secondary))]',
+    outline: 'border-2 border-[hsl(var(--border))] text-[hsl(var(--text))] hover:bg-[hsl(var(--surface))] focus:ring-[hsl(var(--primary))]',
+    ghost: 'text-[hsl(var(--text))] hover:bg-[hsl(var(--surface))] focus:ring-[hsl(var(--primary))]',
+    danger: 'bg-[hsl(var(--error))] text-white hover:bg-[hsl(var(--error))]/90 focus:ring-[hsl(var(--error))]',
   };
 
   const sizes = {
@@ -32,11 +38,12 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <button
-      className={`${baseStyles} ${variants[variant]} ${sizes[size]} ${className}`}
-      disabled={disabled}
+      className={cn(baseStyles, variants[variant], sizes[size], className)}
+      disabled={disabled || loading}
       {...props}
     >
+      {loading && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
       {children}
     </button>
   );
-};
+}

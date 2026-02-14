@@ -1,4 +1,7 @@
+'use client';
+
 import React from 'react';
+import { cn } from '@/lib/utils';
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
@@ -6,32 +9,43 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   helperText?: string;
 }
 
-export const Input: React.FC<InputProps> = ({
+export function Input({
   label,
   error,
   helperText,
-  className = '',
+  className,
+  id,
   ...props
-}) => {
+}: InputProps) {
+  const inputId = id || label?.toLowerCase().replace(/\s+/g, '-');
+
   return (
     <div className="w-full">
       {label && (
-        <label className="block text-sm font-medium text-slate-300 mb-2">
+        <label
+          htmlFor={inputId}
+          className="block text-sm font-medium text-[hsl(var(--text))] mb-2"
+        >
           {label}
         </label>
       )}
       <input
-        className={`w-full px-4 py-2 bg-slate-800/50 border ${
-          error ? 'border-error' : 'border-slate-700'
-        } rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all ${className}`}
+        id={inputId}
+        className={cn(
+          'w-full px-4 py-2.5 bg-[hsl(var(--surface))] border rounded-lg text-[hsl(var(--text))] placeholder:text-[hsl(var(--text-secondary))] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-[hsl(var(--background))] transition-all duration-200',
+          error
+            ? 'border-[hsl(var(--error))] focus:ring-[hsl(var(--error))]'
+            : 'border-[hsl(var(--border))] focus:ring-[hsl(var(--primary))]',
+          className
+        )}
         {...props}
       />
       {error && (
-        <p className="mt-1 text-sm text-error">{error}</p>
+        <p className="mt-1.5 text-sm text-[hsl(var(--error))]">{error}</p>
       )}
       {helperText && !error && (
-        <p className="mt-1 text-sm text-slate-400">{helperText}</p>
+        <p className="mt-1.5 text-sm text-[hsl(var(--text-secondary))]">{helperText}</p>
       )}
     </div>
   );
-};
+}

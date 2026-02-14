@@ -1,92 +1,73 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Sparkles, RefreshCw } from 'lucide-react';
-import { Button } from '@/components/ui/Button';
-import { Select } from '@/components/ui/Select';
+import { AIRecommendation } from '@/types';
 import { RecommendationCard } from './RecommendationCard';
-import { useRecommendations } from '@/hooks/useRecommendations';
+import { Select } from '@/components/ui/Select';
 
-export const RecommendationsList: React.FC = () => {
-  const {
-    recommendations,
-    loading,
-    refreshRecommendations,
-    refreshing,
-    dismissRecommendation,
-  } = useRecommendations();
-  const [filter, setFilter] = useState<string>('all');
+interface RecommendationsListProps {
+  recommendations: AIRecommendation[];
+}
+
+export function RecommendationsList({ recommendations }: RecommendationsListProps) {
+  const [priorityFilter, setPriorityFilter] = useState<string>('all');
+  const [categoryFilter, setCategoryFilter] = useState<string>('all');
+
+  const categories = Array.from(new Set(recommendations.map((r) => r.category)));
 
   const filteredRecommendations = recommendations.filter((rec) => {
-    if (filter === 'all') return true;
-    return rec.type === filter;
+    const matchesPriority = priorityFilter === 'all' || rec.priority === priorityFilter;
+    const matchesCategory = categoryFilter === 'all' || rec.category === categoryFilter;
+    return matchesPriority && matchesCategory;
   });
 
-  const handleDismiss = async (id: string) => {
-    await dismissRecommendation(id);
-  };
+  const sortedRecommendations = [...filteredRecommendations].sort((a, b) => {
+    const priorityOrder = { high: 0, medium: 1, low: 2 };
+    return priorityOrder[a.priority] - priorityOrder[b.priority];
+  });
 
-  if (loading) {
+  if (recommendations.length === 0) {
     return (
-      <div className="space-y-4">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-48 bg-gray-200 rounded-lg animate-pulse"></div>
-        ))}
+      <div className="text-center py-12">
+        <p className="text-gray-600">No recommendations available</p>
+        <p className="text-sm text-gray-500 mt-1">
+          Generate recommendations to get personalized financial insights
+        </p>
       </div>
     );
   }
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <h2 className="text-2xl font-bold text-gray-800">AI Recommendations</h2>
-          <Select
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-            className="w-48"
-          >
-            <option value="all">All Types</option>
-            <option value="savings">Savings</option>
-            <option value="spending">Spending</option>
-            <option value="investment">Investment</option>
-            <option value="goal">Goal</option>
-            <option value="budget">Budget</option>
-          </Select>
-        </div>
-        <Button onClick={refreshRecommendations} disabled={refreshing}>
-          <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-          {refreshing ? 'Refreshing...' : 'Refresh'}
-        </Button>
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row gap-4">
+        <Select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)}>
+          <option value="all">All Priorities</option>
+          <option value="high">High Priority</option>
+          <option value="medium">Medium Priority</option>
+          <option value="low">Low Priority</option>
+        </Select>
+
+        <Select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+          <option value="all">All Categories</option>
+          {categories.map((category) => (
+            <option key={category} value={category}>
+              {category}
+            </option>
+          ))}
+        </Select>
       </div>
 
-      {filteredRecommendations.length === 0 ? (
-        <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
-          <div className="w-16 h-16 bg-gradient-to-br from-accent to-secondary rounded-full flex items-center justify-center mx-auto mb-4">
-            <Sparkles className="w-8 h-8 text-white" />
-          </div>
-          <h3 className="text-xl font-semibold text-gray-800 mb-2">
-            No recommendations yet
-          </h3>
-          <p className="text-gray-600 mb-6">
-            Add more transactions to get personalized AI insights
-          </p>
-          <Button onClick={refreshRecommendations} disabled={refreshing}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-            Generate Recommendations
-          </Button>
+      {sortedRecommendations.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-gray-600">No recommendations match your filters</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredRecommendations.map((rec) => (
-            <RecommendationCard
-              key={rec._id}
-              recommendation={rec}
-              onDismiss={handleDismiss}
-            />
+          {sortedRecommendations.map((recommendation) => (
+            <RecommendationCard key={recommendation._id} recommendation={recommendation} />
           ))}
         </div>
       )}
     </div>
   );
-};
+}

@@ -1,56 +1,55 @@
 'use client';
 
 import React from 'react';
-import { RecommendationsList } from '@/components/recommendations/RecommendationsList';
 import { useRecommendations } from '@/hooks/useRecommendations';
-import { Button } from '@/components/ui/Button';
-import { RefreshCw, Brain } from 'lucide-react';
+import { RecommendationsList } from '@/components/recommendations/RecommendationsList';
+import { GenerateButton } from '@/components/recommendations/GenerateButton';
+import { Card, CardContent } from '@/components/ui/Card';
+import { Skeleton } from '@/components/ui/Skeleton';
+import { Sparkles } from 'lucide-react';
 
 export default function RecommendationsPage() {
-  const { recommendations, isLoading, refresh, isRefreshing } = useRecommendations();
+  const { recommendations, loading, refetch } = useRecommendations();
 
-  const handleRefresh = async () => {
-    await refresh();
+  const handleGenerate = async () => {
+    await refetch();
   };
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold mb-2 flex items-center">
-            <Brain className="w-8 h-8 mr-3 text-primary" />
-            AI Recommendations
-          </h1>
-          <p className="text-slate-400">Personalized financial advice powered by artificial intelligence.</p>
+          <h1 className="text-3xl font-bold mb-2">AI Recommendations</h1>
+          <p className="text-[hsl(var(--text-secondary))]">
+            Personalized financial insights powered by AI
+          </p>
         </div>
-        <Button 
-          variant="outline" 
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-        >
-          <RefreshCw className={`w-5 h-5 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-          {isRefreshing ? 'Generating...' : 'Refresh'}
-        </Button>
+        <GenerateButton onGenerate={handleGenerate} />
       </div>
 
-      {isLoading ? (
-        <div className="glass rounded-2xl p-12 text-center">
-          <div className="animate-spin w-12 h-12 border-4 border-primary border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p className="text-slate-400">Loading recommendations...</p>
+      {loading ? (
+        <div className="space-y-4">
+          <Skeleton className="h-48" />
+          <Skeleton className="h-48" />
+          <Skeleton className="h-48" />
         </div>
-      ) : recommendations.length === 0 ? (
-        <div className="glass rounded-2xl p-12 text-center">
-          <Brain className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold mb-2">No Recommendations Yet</h3>
-          <p className="text-slate-400 mb-6">
-            Add some transactions and set up your budget to get personalized AI recommendations.
-          </p>
-          <Button variant="primary" onClick={handleRefresh}>
-            Generate Recommendations
-          </Button>
-        </div>
+      ) : recommendations && recommendations.length > 0 ? (
+        <RecommendationsList 
+          recommendations={recommendations}
+        />
       ) : (
-        <RecommendationsList recommendations={recommendations} />
+        <Card className="glass-strong border-white/10">
+          <CardContent className="p-12 text-center">
+            <div className="w-20 h-20 rounded-2xl gradient-accent flex items-center justify-center mx-auto mb-6">
+              <Sparkles className="w-10 h-10 text-white" />
+            </div>
+            <h2 className="text-2xl font-bold mb-3">No Recommendations Yet</h2>
+            <p className="text-[hsl(var(--text-secondary))] mb-6 max-w-md mx-auto">
+              Generate AI-powered recommendations based on your spending patterns and financial goals.
+            </p>
+            <GenerateButton onGenerate={handleGenerate} size="lg" />
+          </CardContent>
+        </Card>
       )}
     </div>
   );

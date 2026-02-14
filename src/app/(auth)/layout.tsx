@@ -1,6 +1,4 @@
 import React from 'react';
-import Link from 'next/link';
-import { DollarSign } from 'lucide-react';
 
 export default function AuthLayout({
   children,
@@ -8,18 +6,14 @@ export default function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
-      <div className="fixed top-0 w-full z-50 glass border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <Link href="/" className="flex items-center space-x-2">
-              <DollarSign className="w-8 h-8 text-primary" />
-              <span className="text-xl font-bold text-gradient">FinancePlanner</span>
-            </Link>
-          </div>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-[hsl(var(--background))] via-[hsl(220,20%,12%)] to-[hsl(var(--background))] relative overflow-hidden">
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 -left-48 w-96 h-96 bg-[hsl(var(--primary))] opacity-10 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-1/4 -right-48 w-96 h-96 bg-[hsl(var(--secondary))] opacity-10 rounded-full blur-3xl"></div>
       </div>
-      <main className="pt-16">{children}</main>
+      <div className="relative z-10">
+        {children}
+      </div>
     </div>
   );
 }

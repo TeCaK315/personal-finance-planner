@@ -1,131 +1,131 @@
 import OpenAI from 'openai';
-import { getDb } from './mongodb';
-import { ObjectId } from 'mongodb';
-import { AIRecommendation, Transaction, Budget, FinancialGoal } from '@/types';
+import { AIRecommendation, Transaction, Budget, CategorySpending } from '@/types';
 
-if (!process.env.OPENAI_API_KEY) {
-  throw new Error('Please add your OPENAI_API_KEY to .env.local');
+let openaiClient: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+  if (!openaiClient) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY is not configured');
+    }
+    openaiClient = new OpenAI({ apiKey });
+  }
+  return openaiClient;
 }
 
-export const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+interface UserFinancialData {
+  budgets: Budget[];
+  transactions: Transaction[];
+  userName: string;
+}
 
-export async function generateFinancialRecommendations(userId: string): Promise<AIRecommendation[]> {
-  const db = await getDb();
+export async function generateFinancialRecommendations(
+  userData: UserFinancialData
+): Promise<Omit<AIRecommendation, '_id'>[]> {
+  const client = getOpenAIClient();
+  const model = process.env.OPENAI_MODEL || 'gpt-4-turbo-preview';
 
-  const transactions = await db
-    .collection('transactions')
-    .find({ userId: new ObjectId(userId) })
-    .sort({ date: -1 })
-    .limit(100)
-    .toArray();
-
-  const currentMonth = new Date().toISOString().slice(0, 7);
-  const budget = await db.collection('budgets').findOne({
-    userId: new ObjectId(userId),
-    month: currentMonth,
-  });
-
-  const goals = await db
-    .collection('financial_goals')
-    .find({ userId: new ObjectId(userId), status: 'active' })
-    .toArray();
-
-  const totalIncome = transactions
-    .filter((t) => t.type === 'income')
+  const totalIncome = userData.transactions
+    .filter(t => t.type === 'income')
     .reduce((sum, t) => sum + t.amount, 0);
 
-  const totalExpenses = transactions
-    .filter((t) => t.type === 'expense')
+  const totalExpenses = userData.transactions
+    .filter(t => t.type === 'expense')
     .reduce((sum, t) => sum + t.amount, 0);
 
-  const categoryExpenses: Record<string, number> = {};
-  transactions
-    .filter((t) => t.type === 'expense')
-    .forEach((t) => {
-      categoryExpenses[t.category] = (categoryExpenses[t.category] || 0) + t.amount;
+  const categorySpendingMap = new Map<string, { amount: number; count: number }>();
+  userData.transactions
+    .filter(t => t.type === 'expense')
+    .forEach(t => {
+      const existing = categorySpendingMap.get(t.categoryName) || { amount: 0, count: 0 };
+      categorySpendingMap.set(t.categoryName, {
+        amount: existing.amount + t.amount,
+        count: existing.count + 1
+      });
     });
 
-  const prompt = `You are a financial advisor AI. Analyze the following financial data and provide 3-5 actionable recommendations:
+  const categorySpending: CategorySpending[] = Array.from(categorySpendingMap.entries())
+    .map(([categoryName, data]) => ({
+      categoryName,
+      amount: data.amount,
+      percentage: totalExpenses > 0 ? (data.amount / totalExpenses) * 100 : 0,
+      transactionCount: data.count
+    }))
+    .sort((a, b) => b.amount - a.amount);
 
-Income: $${totalIncome.toFixed(2)}
-Expenses: $${totalExpenses.toFixed(2)}
-Balance: $${(totalIncome - totalExpenses).toFixed(2)}
+  const prompt = `You are a financial advisor AI. Analyze the following financial data for ${userData.userName} and provide 3-5 actionable recommendations to improve financial health.
 
-Expense Breakdown:
-${Object.entries(categoryExpenses)
-  .map(([cat, amount]) => `- ${cat}: $${amount.toFixed(2)}`)
-  .join('\n')}
+Budgets Overview:
+${userData.budgets.map(b => `- ${b.name}: $${b.totalAmount} (${b.period})`).join('\n')}
 
-${budget ? `Budget Limits:\n${budget.categoryLimits.map((cl: any) => `- ${cl.category}: $${cl.limit}`).join('\n')}` : 'No budget set'}
+Financial Summary:
+- Total Income: $${totalIncome}
+- Total Expenses: $${totalExpenses}
+- Net: $${totalIncome - totalExpenses}
+- Number of Transactions: ${userData.transactions.length}
 
-${goals.length > 0 ? `Active Goals:\n${goals.map((g: any) => `- ${g.title}: $${g.currentAmount}/$${g.targetAmount} by ${new Date(g.deadline).toLocaleDateString()}`).join('\n')}` : 'No active goals'}
+Category Spending Breakdown:
+${categorySpending.map(cat => `- ${cat.categoryName}: $${cat.amount} (${cat.percentage.toFixed(1)}%, ${cat.transactionCount} transactions)`).join('\n')}
 
 Provide recommendations in the following JSON format:
 [
   {
-    "type": "savings|spending|investment|goal|budget",
-    "title": "Short recommendation title",
-    "description": "Detailed explanation",
-    "priority": "high|medium|low",
-    "potentialSavings": number (optional),
-    "actionItems": ["action 1", "action 2", "action 3"]
+    "title": "Brief recommendation title",
+    "description": "Detailed explanation of the recommendation",
+    "priority": "high" | "medium" | "low",
+    "category": "savings" | "spending" | "budgeting" | "income" | "debt",
+    "potentialSavings": number (optional, estimated monthly savings),
+    "actionItems": ["specific action 1", "specific action 2", ...]
   }
 ]
 
-Focus on practical, specific advice based on the data. Identify overspending, suggest savings opportunities, and help achieve goals.`;
+Focus on:
+1. Identifying overspending categories
+2. Suggesting budget reallocation
+3. Finding savings opportunities
+4. Recommending income optimization
+5. Highlighting positive financial behaviors
 
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4-turbo-preview',
+Return ONLY valid JSON array, no additional text.`;
+
+  const completion = await client.chat.completions.create({
+    model,
     messages: [
       {
         role: 'system',
-        content: 'You are a professional financial advisor providing personalized recommendations. Always respond with valid JSON array.',
+        content: 'You are a professional financial advisor providing personalized recommendations based on spending data. Always respond with valid JSON only.'
       },
       {
         role: 'user',
-        content: prompt,
-      },
+        content: prompt
+      }
     ],
     temperature: 0.7,
-    max_tokens: 2000,
+    max_tokens: 2000
   });
 
-  const content = completion.choices[0]?.message?.content || '[]';
-  
-  let recommendationsData: any[];
-  try {
-    recommendationsData = JSON.parse(content);
-  } catch (error) {
-    const jsonMatch = content.match(/\[[\s\S]*\]/);
-    if (jsonMatch) {
-      recommendationsData = JSON.parse(jsonMatch[0]);
-    } else {
-      recommendationsData = [];
-    }
+  const content = completion.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error('No response from OpenAI');
   }
 
-  const recommendations: AIRecommendation[] = recommendationsData.map((rec) => ({
-    _id: new ObjectId().toString(),
-    userId,
-    type: rec.type || 'budget',
-    title: rec.title || 'Financial Recommendation',
-    description: rec.description || '',
-    priority: rec.priority || 'medium',
+  let recommendations: any[];
+  try {
+    recommendations = JSON.parse(content);
+  } catch (error) {
+    throw new Error('Failed to parse OpenAI response as JSON');
+  }
+
+  return recommendations.map(rec => ({
+    userId: '',
+    title: rec.title,
+    description: rec.description,
+    priority: rec.priority,
+    category: rec.category,
     potentialSavings: rec.potentialSavings,
-    actionItems: rec.actionItems || [],
+    actionItems: rec.actionItems,
     generatedAt: new Date(),
-    dismissed: false,
+    isRead: false
   }));
-
-  await db.collection('ai_recommendations').insertMany(
-    recommendations.map((rec) => ({
-      ...rec,
-      _id: new ObjectId(rec._id),
-      userId: new ObjectId(rec.userId),
-    }))
-  );
-
-  return recommendations;
 }

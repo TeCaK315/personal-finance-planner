@@ -3,89 +3,66 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { 
-  LayoutDashboard, 
-  Calculator, 
-  Target, 
-  Receipt, 
-  Lightbulb,
-  LogOut
-} from 'lucide-react';
+import { LayoutDashboard, Wallet, Receipt, Lightbulb, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { cn } from '@/lib/utils';
 
-export const Sidebar: React.FC = () => {
+const navigation = [
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+  { name: 'Budgets', href: '/dashboard/budgets', icon: Wallet },
+  { name: 'Transactions', href: '/dashboard/transactions', icon: Receipt },
+  { name: 'Recommendations', href: '/dashboard/recommendations', icon: Lightbulb },
+];
+
+export function Sidebar() {
   const pathname = usePathname();
   const { logout } = useAuth();
 
-  const menuItems = [
-    {
-      href: '/dashboard',
-      label: 'Dashboard',
-      icon: LayoutDashboard,
-    },
-    {
-      href: '/budget',
-      label: 'Budget',
-      icon: Calculator,
-    },
-    {
-      href: '/goals',
-      label: 'Goals',
-      icon: Target,
-    },
-    {
-      href: '/transactions',
-      label: 'Transactions',
-      icon: Receipt,
-    },
-    {
-      href: '/recommendations',
-      label: 'AI Insights',
-      icon: Lightbulb,
-    },
-  ];
-
   const handleLogout = async () => {
     await logout();
+    window.location.href = '/login';
   };
 
   return (
-    <aside className="w-64 min-h-screen bg-gradient-to-b from-primary to-primary/90 text-white p-6 flex flex-col">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold bg-gradient-to-r from-accent to-secondary bg-clip-text text-transparent">
-          Finance Planner
+    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col fixed h-screen">
+      <div className="p-6">
+        <h1 className="text-2xl font-bold bg-gradient-to-r from-primary to-accent bg-clip-text text-transparent">
+          FinancePlanner
         </h1>
       </div>
 
-      <nav className="flex-1 space-y-2">
-        {menuItems.map((item) => {
+      <nav className="flex-1 px-4 space-y-1">
+        {navigation.map((item) => {
+          const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
           const Icon = item.icon;
-          const isActive = pathname === item.href;
 
           return (
             <Link
-              key={item.href}
+              key={item.name}
               href={item.href}
-              className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
+              className={cn(
+                'flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all',
                 isActive
-                  ? 'bg-white/20 backdrop-blur-sm shadow-lg'
-                  : 'hover:bg-white/10'
-              }`}
+                  ? 'bg-gradient-to-r from-primary/10 to-accent/10 text-primary border-l-4 border-primary'
+                  : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+              )}
             >
               <Icon className="w-5 h-5" />
-              <span className="font-medium">{item.label}</span>
+              {item.name}
             </Link>
           );
         })}
       </nav>
 
-      <button
-        onClick={handleLogout}
-        className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-white/10 transition-all duration-200 mt-4"
-      >
-        <LogOut className="w-5 h-5" />
-        <span className="font-medium">Logout</span>
-      </button>
+      <div className="p-4 border-t border-gray-200 space-y-1">
+        <button
+          onClick={handleLogout}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium text-red-600 hover:bg-red-50 transition-all"
+        >
+          <LogOut className="w-5 h-5" />
+          Logout
+        </button>
+      </div>
     </aside>
   );
-};
+}
