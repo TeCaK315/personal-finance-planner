@@ -1,103 +1,88 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import type { Transaction, PaginatedResponse, TransactionFilters } from '@/types';
+import { useState, useEffect } from 'react';
+import { apiClient } from '@/utils/api-client';
+import type { Transaction, TransactionFilters, PaginatedResponse } from '@/types';
 
-export function useTransactions(filters?: TransactionFilters, page: number = 1, limit: number = 10) {
+interface UseTransactionsParams extends TransactionFilters {
+  page?: number;
+  limit?: number;
+}
+
+export function useTransactions(params?: UseTransactionsParams) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [pagination, setPagination] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const fetchTransactions = useCallback(async () => {
-    setLoading(true);
+  const fetchTransactions = async () => {
+    setIsLoading(true);
+    setError(null);
     try {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: limit.toString(),
-      });
-
-      if (filters?.type) params.append('type', filters.type);
-      if (filters?.category) params.append('category', filters.category);
-      if (filters?.startDate) params.append('startDate', filters.startDate.toISOString());
-      if (filters?.endDate) params.append('endDate', filters.endDate.toISOString());
-
-      const response = await fetch(`/api/transactions?${params.toString()}`);
-      const data: PaginatedResponse<Transaction> = await response.json();
-
-      if (data.success) {
-        setTransactions(data.data);
-        setPagination(data.pagination);
+      const queryParams: any = { ...params };
+      if (params?.startDate) {
+        queryParams.startDate = params.startDate.toISOString();
       }
-    } catch (error) {
-      console.error('Failed to fetch transactions:', error);
+      if (params?.endDate) {
+        queryParams.endDate = params.endDate.toISOString();
+      }
+
+      const response = await apiClient.get<PaginatedResponse<Transaction>>(
+        '/api/transactions',
+        { params: queryParams }
+      );
+      if (response.data.success) {
+        setTransactions(response.data.data);
+        setPagination(response.data.pagination);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to fetch transactions');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
-  }, [filters, page, limit]);
+  };
 
   useEffect(() => {
     fetchTransactions();
-  }, [fetchTransactions]);
+  }, [
+    params?.page,
+    params?.limit,
+    params?.startDate,
+    params?.endDate,
+    params?.categoryId,
+    params?.type,
+    params?.minAmount,
+    params?.maxAmount,
+    params?.search,
+  ]);
 
-  const createTransaction = async (data: {
-    type: 'income' | 'expense';
-    amount: number;
-    category: string;
-    description: string;
-    date: string;
-  }): Promise<boolean> => {
+  return { transactions, pagination, isLoading, error, refetch: fetchTransactions };
+}
+
+export function useTransaction(transactionId: string) {
+  const [transaction, setTransaction] = useState<Transaction | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchTransaction = async () => {
+    if (!transactionId) return;
+    setIsLoading(true);
+    setError(null);
     try {
-      const response = await fetch('/api/transactions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-
-      const result = await response.json();
-      return result.success;
-    } catch (error) {
-      console.error('Failed to create transaction:', error);
-      return false;
+      const response = await apiClient.get(`/api/transactions/${transactionId}`);
+      if (response.data.success) {
+        setTransaction(response.data.data);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to fetch transaction');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const updateTransaction = async (id: string, data: Partial<Transaction>): Promise<boolean> => {
-    try {
-      const response = await fetch(`/api/transactions/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
+  useEffect(() => {
+    fetchTransaction();
+  }, [transactionId]);
 
-      const result = await response.json();
-      return result.success;
-    } catch (error) {
-      console.error('Failed to update transaction:', error);
-      return false;
-    }
-  };
-
-  const deleteTransaction = async (id: string): Promise<boolean> => {
-    try {
-      const response = await fetch(`/api/transactions/${id}`, {
-        method: 'DELETE',
-      });
-
-      const result = await response.json();
-      return result.success;
-    } catch (error) {
-      console.error('Failed to delete transaction:', error);
-      return false;
-    }
-  };
-
-  return {
-    transactions,
-    pagination,
-    loading,
-    createTransaction,
-    updateTransaction,
-    deleteTransaction,
-    refetch: fetchTransactions,
-  };
+  return { transaction, isLoading, error, refetch: fetchTransaction };
 }

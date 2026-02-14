@@ -1,39 +1,52 @@
 'use client';
 
-import { SelectHTMLAttributes, forwardRef } from 'react';
+import React from 'react';
+import { ChevronDown } from 'lucide-react';
 
-interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
-  label?: string;
-  error?: string;
-  options: { value: string; label: string }[];
+interface SelectOption {
+  value: string;
+  label: string;
 }
 
-export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, error, options, className = '', ...props }, ref) => {
-    return (
-      <div className="w-full">
-        {label && (
-          <label className="block text-sm font-medium mb-2 text-text/80">
-            {label}
-          </label>
-        )}
+interface SelectProps {
+  value: string;
+  onChange: (value: string) => void;
+  options: SelectOption[];
+  placeholder?: string;
+  error?: string;
+  label?: string;
+}
+
+export function Select({ value, onChange, options, placeholder, error, label }: SelectProps) {
+  return (
+    <div className="w-full">
+      {label && (
+        <label className="block text-sm font-medium text-slate-300 mb-2">
+          {label}
+        </label>
+      )}
+      <div className="relative">
         <select
-          ref={ref}
-          className={`w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-text focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all duration-300 ${error ? 'border-red-500' : ''} ${className}`}
-          {...props}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={`input-field appearance-none pr-10 ${error ? 'input-error' : ''}`}
         >
+          {placeholder && (
+            <option value="" disabled>
+              {placeholder}
+            </option>
+          )}
           {options.map((option) => (
-            <option key={option.value} value={option.value} className="bg-background">
+            <option key={option.value} value={option.value}>
               {option.label}
             </option>
           ))}
         </select>
-        {error && (
-          <p className="mt-1 text-sm text-red-400">{error}</p>
-        )}
+        <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 pointer-events-none" />
       </div>
-    );
-  }
-);
-
-Select.displayName = 'Select';
+      {error && (
+        <p className="mt-1 text-sm text-red-400">{error}</p>
+      )}
+    </div>
+  );
+}

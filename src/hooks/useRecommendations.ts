@@ -1,65 +1,58 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import type { AIRecommendation, ApiResponse, RecommendationRequest } from '@/types';
+import { useState, useEffect } from 'react';
+import { apiClient } from '@/utils/api-client';
+import type { AIRecommendation } from '@/types';
 
-export function useRecommendations(category?: string, limit?: number) {
+export function useRecommendations(budgetId?: string) {
   const [recommendations, setRecommendations] = useState<AIRecommendation[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const fetchRecommendations = useCallback(async () => {
-    setLoading(true);
+  const fetchRecommendations = async () => {
+    setIsLoading(true);
+    setError(null);
     try {
-      const params = new URLSearchParams();
-      if (category) params.append('category', category);
-      if (limit) params.append('limit', limit.toString());
-
-      const response = await fetch(`/api/recommendations/history?${params.toString()}`);
-      const data: ApiResponse<AIRecommendation[]> = await response.json();
-
-      if (data.success && data.data) {
-        setRecommendations(data.data);
+      const response = await apiClient.post('/api/ai/recommendations', {
+        budgetId,
+      });
+      if (response.data.success) {
+        setRecommendations(response.data.data);
       }
-    } catch (error) {
-      console.error('Failed to fetch recommendations:', error);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to fetch recommendations');
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
-  }, [category, limit]);
+  };
 
   useEffect(() => {
     fetchRecommendations();
-  }, [fetchRecommendations]);
+  }, [budgetId]);
 
-  const generateRecommendations = async (request: RecommendationRequest): Promise<boolean> => {
-    setLoading(true);
+  return { recommendations, isLoading, error, refetch: fetchRecommendations };
+}
+
+export function useGenerateRecommendations() {
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const generate = async (budgetId?: string) => {
+    setIsGenerating(true);
+    setError(null);
     try {
-      const response = await fetch('/api/recommendations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(request),
+      const response = await apiClient.post('/api/ai/recommendations', {
+        budgetId,
+        forceRegenerate: true,
       });
-
-      const data: ApiResponse<AIRecommendation[]> = await response.json();
-
-      if (data.success && data.data) {
-        setRecommendations(data.data);
-        return true;
-      }
-
-      return false;
-    } catch (error) {
-      console.error('Failed to generate recommendations:', error);
-      return false;
+      return response.data;
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to generate recommendations');
+      throw err;
     } finally {
-      setLoading(false);
+      setIsGenerating(false);
     }
   };
 
-  return {
-    recommendations,
-    loading,
-    generateRecommendations,
-    refetch: fetchRecommendations,
-  };
+  return { generate, isGenerating, error };
 }

@@ -1,17 +1,18 @@
 'use client';
 
-import { ReactNode, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { X } from 'lucide-react';
-import { Card } from './Card';
+import { Button } from './Button';
 
 interface ModalProps {
   isOpen: boolean;
   onClose: () => void;
   title?: string;
-  children: ReactNode;
+  children: React.ReactNode;
+  size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
-export function Modal({ isOpen, onClose, title, children }: ModalProps) {
+export function Modal({ isOpen, onClose, title, children, size = 'md' }: ModalProps) {
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -25,26 +26,35 @@ export function Modal({ isOpen, onClose, title, children }: ModalProps) {
 
   if (!isOpen) return null;
 
+  const sizeStyles = {
+    sm: 'max-w-md',
+    md: 'max-w-lg',
+    lg: 'max-w-2xl',
+    xl: 'max-w-4xl',
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
-      <div
-        className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 scale-in">
+      <div 
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
-      ></div>
-      <Card className="relative w-full max-w-lg max-h-[90vh] overflow-y-auto animate-scale-in">
-        <div className="p-6">
-          <div className="flex justify-between items-center mb-6">
-            {title && <h2 className="text-2xl font-bold">{title}</h2>}
+      />
+      <div className={`relative glass-card w-full ${sizeStyles[size]} max-h-[90vh] overflow-y-auto`}>
+        {title && (
+          <div className="flex items-center justify-between p-6 border-b border-white/10">
+            <h2 className="text-2xl font-bold text-white">{title}</h2>
             <button
               onClick={onClose}
-              className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+              className="text-slate-400 hover:text-white transition-colors"
             >
-              <X className="w-5 h-5" />
+              <X className="w-6 h-6" />
             </button>
           </div>
+        )}
+        <div className="p-6">
           {children}
         </div>
-      </Card>
+      </div>
     </div>
   );
 }

@@ -1,167 +1,128 @@
 'use client';
 
+import React from 'react';
 import Link from 'next/link';
-import { ArrowRight, TrendingUp, Target, Brain, Shield, Zap, PieChart } from 'lucide-react';
+import { ArrowRight, TrendingUp, Brain, Shield, Zap, PieChart, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <nav className="fixed top-0 w-full z-50 glass-card border-b border-white/10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center space-x-2">
-              <TrendingUp className="w-8 h-8 text-primary" />
-              <span className="text-xl font-bold gradient-text">FinancePlanner</span>
-            </div>
-            <div className="flex items-center space-x-4">
-              <Link href="/auth/login">
-                <Button variant="secondary">Login</Button>
-              </Link>
-              <Link href="/auth/register">
-                <Button variant="primary">Get Started</Button>
-              </Link>
-            </div>
+    <div className="min-h-screen">
+      <nav className="fixed top-0 left-0 right-0 z-50 glass-card border-b border-white/10">
+        <div className="container mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <TrendingUp className="w-8 h-8 text-purple-400" />
+            <span className="text-2xl font-bold gradient-text">FinancePlanner</span>
+          </div>
+          <div className="flex items-center space-x-4">
+            <Link href="/login">
+              <Button variant="ghost">Login</Button>
+            </Link>
+            <Link href="/register">
+              <Button variant="primary">Get Started</Button>
+            </Link>
           </div>
         </div>
       </nav>
 
-      <main className="pt-16">
-        <section className="relative overflow-hidden py-20 sm:py-32">
-          <div className="absolute inset-0 bg-gradient-to-br from-primary/20 via-secondary/20 to-accent/20 blur-3xl"></div>
-          <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center animate-fade-in">
-              <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold mb-6">
-                <span className="gradient-text">Smart Financial Planning</span>
-                <br />
-                <span className="text-text">Powered by AI</span>
-              </h1>
-              <p className="text-xl text-text/80 mb-8 max-w-3xl mx-auto">
-                Take control of your finances with AI-powered insights, budget tracking, and personalized recommendations.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-4 justify-center">
-                <Link href="/auth/register">
-                  <Button variant="primary" className="group">
-                    Start Free Trial
-                    <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                  </Button>
-                </Link>
-                <Link href="/auth/login">
-                  <Button variant="accent">View Demo</Button>
-                </Link>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="py-20 bg-background/50">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-16 animate-slide-up">
-              <h2 className="text-4xl font-bold mb-4 gradient-text">Powerful Features</h2>
-              <p className="text-xl text-text/70">Everything you need to manage your finances effectively</p>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              <Card className="animate-scale-in" style={{ animationDelay: '0.1s' }}>
-                <div className="p-6">
-                  <div className="w-12 h-12 rounded-xl gradient-primary flex items-center justify-center mb-4">
-                    <PieChart className="w-6 h-6 text-white" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">Budget Tracking</h3>
-                  <p className="text-text/70">
-                    Track your income and expenses with detailed categorization and real-time balance calculations.
-                  </p>
-                </div>
-              </Card>
-
-              <Card className="animate-scale-in" style={{ animationDelay: '0.2s' }}>
-                <div className="p-6">
-                  <div className="w-12 h-12 rounded-xl gradient-accent flex items-center justify-center mb-4">
-                    <Target className="w-6 h-6 text-white" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">Financial Goals</h3>
-                  <p className="text-text/70">
-                    Set and track your financial goals with progress visualization and milestone tracking.
-                  </p>
-                </div>
-              </Card>
-
-              <Card className="animate-scale-in" style={{ animationDelay: '0.3s' }}>
-                <div className="p-6">
-                  <div className="w-12 h-12 rounded-xl gradient-primary flex items-center justify-center mb-4">
-                    <Brain className="w-6 h-6 text-white" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">AI Recommendations</h3>
-                  <p className="text-text/70">
-                    Get personalized financial advice powered by advanced AI to optimize your spending and savings.
-                  </p>
-                </div>
-              </Card>
-
-              <Card className="animate-scale-in" style={{ animationDelay: '0.4s' }}>
-                <div className="p-6">
-                  <div className="w-12 h-12 rounded-xl gradient-accent flex items-center justify-center mb-4">
-                    <TrendingUp className="w-6 h-6 text-white" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">Trend Analysis</h3>
-                  <p className="text-text/70">
-                    Visualize your financial trends over time with interactive charts and insights.
-                  </p>
-                </div>
-              </Card>
-
-              <Card className="animate-scale-in" style={{ animationDelay: '0.5s' }}>
-                <div className="p-6">
-                  <div className="w-12 h-12 rounded-xl gradient-primary flex items-center justify-center mb-4">
-                    <Shield className="w-6 h-6 text-white" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">Secure & Private</h3>
-                  <p className="text-text/70">
-                    Your financial data is encrypted and secure with industry-standard security practices.
-                  </p>
-                </div>
-              </Card>
-
-              <Card className="animate-scale-in" style={{ animationDelay: '0.6s' }}>
-                <div className="p-6">
-                  <div className="w-12 h-12 rounded-xl gradient-accent flex items-center justify-center mb-4">
-                    <Zap className="w-6 h-6 text-white" />
-                  </div>
-                  <h3 className="text-xl font-semibold mb-2">Real-time Updates</h3>
-                  <p className="text-text/70">
-                    Get instant updates on your financial status with real-time calculations and notifications.
-                  </p>
-                </div>
-              </Card>
-            </div>
-          </div>
-        </section>
-
-        <section className="py-20">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <Card className="p-12 animate-fade-in">
-              <h2 className="text-4xl font-bold mb-4 gradient-text">Ready to Take Control?</h2>
-              <p className="text-xl text-text/70 mb-8">
-                Join thousands of users who are already managing their finances smarter with AI-powered insights.
-              </p>
-              <Link href="/auth/register">
-                <Button variant="primary" className="group">
-                  Get Started for Free
-                  <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                </Button>
-              </Link>
-            </Card>
-          </div>
-        </section>
-      </main>
-
-      <footer className="border-t border-white/10 py-8">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center text-text/60">
-            <p>&copy; 2024 FinancePlanner. All rights reserved.</p>
+      <section className="pt-32 pb-20 px-6">
+        <div className="container mx-auto text-center">
+          <h1 className="text-6xl md:text-7xl font-bold mb-6 gradient-text slide-up">
+            Smart Finance Management
+          </h1>
+          <p className="text-xl md:text-2xl text-slate-300 mb-12 max-w-3xl mx-auto slide-up">
+            AI-powered personal finance planner that helps you track expenses, manage budgets, and achieve your financial goals with intelligent recommendations.
+          </p>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-4 slide-up">
+            <Link href="/register">
+              <Button variant="primary" size="lg" className="group">
+                Start Free Trial
+                <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </Button>
+            </Link>
+            <Link href="/login">
+              <Button variant="secondary" size="lg">
+                Sign In
+              </Button>
+            </Link>
           </div>
         </div>
+      </section>
+
+      <section className="py-20 px-6">
+        <div className="container mx-auto">
+          <h2 className="text-4xl md:text-5xl font-bold text-center mb-16 gradient-text">
+            Powerful Features
+          </h2>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <FeatureCard
+              icon={<Brain className="w-12 h-12 text-purple-400" />}
+              title="AI-Powered Insights"
+              description="Get personalized financial recommendations based on your spending patterns and goals using advanced AI analysis."
+            />
+            <FeatureCard
+              icon={<PieChart className="w-12 h-12 text-pink-400" />}
+              title="Smart Budgeting"
+              description="Create and manage budgets with category limits, real-time tracking, and overspending alerts."
+            />
+            <FeatureCard
+              icon={<TrendingUp className="w-12 h-12 text-cyan-400" />}
+              title="Trend Analysis"
+              description="Visualize your spending trends over time with interactive charts and detailed reports."
+            />
+            <FeatureCard
+              icon={<Bell className="w-12 h-12 text-indigo-400" />}
+              title="Smart Alerts"
+              description="Receive notifications when you're approaching budget limits or unusual spending is detected."
+            />
+            <FeatureCard
+              icon={<Shield className="w-12 h-12 text-green-400" />}
+              title="Secure & Private"
+              description="Your financial data is encrypted and protected with industry-standard security measures."
+            />
+            <FeatureCard
+              icon={<Zap className="w-12 h-12 text-yellow-400" />}
+              title="Quick Import"
+              description="Bulk import transactions from CSV files and automatically categorize them with AI."
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="py-20 px-6">
+        <div className="container mx-auto">
+          <div className="glass-card p-12 text-center">
+            <h2 className="text-4xl md:text-5xl font-bold mb-6 gradient-text">
+              Ready to Take Control?
+            </h2>
+            <p className="text-xl text-slate-300 mb-8 max-w-2xl mx-auto">
+              Join thousands of users who are already managing their finances smarter with AI-powered insights.
+            </p>
+            <Link href="/register">
+              <Button variant="primary" size="lg" className="group">
+                Get Started Now
+                <ArrowRight className="ml-2 w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <footer className="py-12 px-6 border-t border-white/10">
+        <div className="container mx-auto text-center text-slate-400">
+          <p>&copy; 2024 FinancePlanner. All rights reserved.</p>
+        </div>
       </footer>
+    </div>
+  );
+}
+
+function FeatureCard({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) {
+  return (
+    <div className="glass-card-hover p-8 fade-in">
+      <div className="mb-4">{icon}</div>
+      <h3 className="text-2xl font-bold mb-3 text-white">{title}</h3>
+      <p className="text-slate-300">{description}</p>
     </div>
   );
 }

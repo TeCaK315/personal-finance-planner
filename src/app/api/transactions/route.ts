@@ -1,21 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ObjectId } from 'mongodb';
-import { getDb } from '@/lib/mongodb';
-import { getUserFromToken } from '@/lib/auth';
-import type { ApiResponse, PaginatedResponse, Transaction } from '@/types';
+import { connectToDatabase } from '@/lib/mongodb';
+import { verifyToken } from '@/lib/jwt';
+import { transactionSchema } from '@/lib/validators';
+import type { Transaction, ApiResponse, PaginatedResponse } from '@/types';
 
 export async function GET(request: NextRequest) {
   try {
-    const token = request.cookies.get('auth-token')?.value;
-    if (!token) {
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Not authenticated' },
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const user = await getUserFromToken(token);
-    if (!user) {
+    const token = authHeader.substring(7);
+    const payload = await verifyToken(token);
+    if (!payload) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Invalid token' },
         { status: 401 }
@@ -23,53 +25,64 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const page = parseInt(searchParams.get('page') || '1');
-    const limit = parseInt(searchParams.get('limit') || '10');
-    const type = searchParams.get('type') as 'income' | 'expense' | null;
-    const category = searchParams.get('category');
+    const page = parseInt(searchParams.get('page') || '1', 10);
+    const limit = parseInt(searchParams.get('limit') || '20', 10);
     const startDate = searchParams.get('startDate');
     const endDate = searchParams.get('endDate');
+    const categoryId = searchParams.get('categoryId');
+    const type = searchParams.get('type');
+    const minAmount = searchParams.get('minAmount');
+    const maxAmount = searchParams.get('maxAmount');
+    const search = searchParams.get('search');
 
-    const db = await getDb();
-    const transactionsCollection = db.collection('transactions');
+    const db = await connectToDatabase();
+    const transactionsCollection = db.collection<Transaction>('transactions');
 
-    const filter: Record<string, unknown> = { userId: user._id };
-    if (type) filter.type = type;
-    if (category) filter.category = category;
+    const query: Record<string, unknown> = { userId: payload.userId };
+
     if (startDate || endDate) {
-      filter.date = {};
-      if (startDate) (filter.date as Record<string, unknown>).$gte = new Date(startDate);
-      if (endDate) (filter.date as Record<string, unknown>).$lte = new Date(endDate);
+      query.date = {};
+      if (startDate) query.date.$gte = new Date(startDate);
+      if (endDate) query.date.$lte = new Date(endDate);
+    }
+
+    if (categoryId) query.categoryId = categoryId;
+    if (type) query.type = type;
+
+    if (minAmount || maxAmount) {
+      query.amount = {};
+      if (minAmount) query.amount.$gte = parseFloat(minAmount);
+      if (maxAmount) query.amount.$lte = parseFloat(maxAmount);
+    }
+
+    if (search) {
+      query.description = { $regex: search, $options: 'i' };
     }
 
     const skip = (page - 1) * limit;
-    const total = await transactionsCollection.countDocuments(filter);
-    const totalPages = Math.ceil(total / limit);
-
-    const docs = await transactionsCollection
-      .find(filter)
-      .sort({ date: -1, createdAt: -1 })
+    const total = await transactionsCollection.countDocuments(query);
+    const transactions = await transactionsCollection
+      .find(query)
+      .sort({ date: -1 })
       .skip(skip)
       .limit(limit)
       .toArray();
 
-    const transactions: Transaction[] = docs.map((doc) => ({
-      _id: doc._id.toString(),
-      userId: doc.userId,
-      type: doc.type,
-      amount: doc.amount,
-      category: doc.category,
-      description: doc.description,
-      date: doc.date,
-      createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt,
+    const transactionsWithStringId = transactions.map(transaction => ({
+      ...transaction,
+      _id: transaction._id.toString(),
     }));
 
     return NextResponse.json<PaginatedResponse<Transaction>>(
       {
         success: true,
-        data: transactions,
-        pagination: { page, limit, total, totalPages },
+        data: transactionsWithStringId,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
       },
       { status: 200 }
     );
@@ -84,16 +97,17 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const token = request.cookies.get('auth-token')?.value;
-    if (!token) {
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Not authenticated' },
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const user = await getUserFromToken(token);
-    if (!user) {
+    const token = authHeader.substring(7);
+    const payload = await verifyToken(token);
+    if (!payload) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Invalid token' },
         { status: 401 }
@@ -101,58 +115,42 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { type, amount, category, description, date } = body;
-
-    if (!type || !amount || !category || !description || !date) {
+    const validation = transactionSchema.safeParse(body);
+    if (!validation.success) {
       return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Missing required fields' },
+        { success: false, error: validation.error.errors[0].message },
         { status: 400 }
       );
     }
 
-    if (type !== 'income' && type !== 'expense') {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Invalid transaction type' },
-        { status: 400 }
-      );
-    }
+    const { budgetId, categoryId, amount, type, description, date } = validation.data;
 
-    if (amount <= 0) {
-      return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Amount must be positive' },
-        { status: 400 }
-      );
-    }
+    const db = await connectToDatabase();
+    const transactionsCollection = db.collection<Transaction>('transactions');
 
-    const db = await getDb();
-    const transactionsCollection = db.collection('transactions');
-    const now = new Date();
-
-    const result = await transactionsCollection.insertOne({
-      userId: user._id,
+    const newTransaction: Omit<Transaction, '_id'> = {
+      userId: payload.userId,
+      budgetId,
+      categoryId,
+      amount,
       type,
-      amount: parseFloat(amount),
-      category,
       description,
       date: new Date(date),
-      createdAt: now,
-      updatedAt: now,
-    });
-
-    const transaction: Transaction = {
-      _id: result.insertedId.toString(),
-      userId: user._id,
-      type,
-      amount: parseFloat(amount),
-      category,
-      description,
-      date: new Date(date),
-      createdAt: now,
-      updatedAt: now,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     };
 
+    const result = await transactionsCollection.insertOne(newTransaction as Transaction);
+    const transactionId = result.insertedId.toString();
+
     return NextResponse.json<ApiResponse<Transaction>>(
-      { success: true, data: transaction },
+      {
+        success: true,
+        data: {
+          ...newTransaction,
+          _id: transactionId,
+        },
+      },
       { status: 201 }
     );
   } catch (error) {

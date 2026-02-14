@@ -1,63 +1,71 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/lib/mongodb';
-import { verifyPassword, generateToken } from '@/lib/auth';
-import type { ApiResponse, User } from '@/types';
+import bcrypt from 'bcryptjs';
+import { connectToDatabase } from '@/lib/mongodb';
+import { generateToken } from '@/lib/jwt';
+import { loginSchema } from '@/lib/validators';
+import type { User, ApiResponse, AuthTokens } from '@/types';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { email, password } = body;
-
-    if (!email || !password) {
+    
+    const validation = loginSchema.safeParse(body);
+    if (!validation.success) {
       return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Missing email or password' },
+        { success: false, error: validation.error.errors[0].message },
         { status: 400 }
       );
     }
 
-    const db = await getDb();
-    const usersCollection = db.collection('users');
+    const { email, password } = validation.data;
 
-    const userDoc = await usersCollection.findOne({ email });
-    if (!userDoc) {
+    const db = await connectToDatabase();
+    const usersCollection = db.collection<User>('users');
+
+    const user = await usersCollection.findOne({ email });
+    if (!user) {
       return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Invalid credentials' },
+        { success: false, error: 'Invalid email or password' },
         { status: 401 }
       );
     }
 
-    const isValid = await verifyPassword(password, userDoc.password);
-    if (!isValid) {
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isPasswordValid) {
       return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Invalid credentials' },
+        { success: false, error: 'Invalid email or password' },
         { status: 401 }
       );
     }
 
-    const user: User = {
-      _id: userDoc._id.toString(),
-      email: userDoc.email,
-      name: userDoc.name,
-      createdAt: userDoc.createdAt,
-      updatedAt: userDoc.updatedAt,
+    const userId = user._id.toString();
+    const { accessToken, refreshToken, expiresIn } = generateToken(userId, user.email);
+
+    const userResponse = {
+      _id: userId,
+      email: user.email,
+      name: user.name,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      preferences: user.preferences,
+    } as Omit<User, 'passwordHash'>;
+
+    const tokens: AuthTokens = {
+      accessToken,
+      refreshToken,
+      expiresIn,
     };
 
-    const token = generateToken(user._id, user.email);
-
-    const response = NextResponse.json<ApiResponse<{ user: User; token: string }>>(
-      { success: true, data: { user, token } },
+    return NextResponse.json<ApiResponse<{ user: Omit<User, 'passwordHash'>; tokens: AuthTokens }>>(
+      {
+        success: true,
+        data: {
+          user: userResponse,
+          tokens,
+        },
+      },
       { status: 200 }
     );
-
-    response.cookies.set('auth-token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 * 7,
-      path: '/',
-    });
-
-    return response;
   } catch (error) {
     console.error('Login error:', error);
     return NextResponse.json<ApiResponse<never>>(

@@ -1,46 +1,81 @@
 import { MongoClient, Db } from 'mongodb';
 
-if (!process.env.MONGODB_URI) {
-  throw new Error('Please add your MongoDB URI to .env file');
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017';
+const MONGODB_DB_NAME = process.env.MONGODB_DB_NAME || 'personal_finance_planner';
+
+if (!MONGODB_URI) {
+  throw new Error('Please define the MONGODB_URI environment variable');
 }
 
-const uri = process.env.MONGODB_URI;
-const options = {
-  maxPoolSize: 10,
-  minPoolSize: 5,
-  maxIdleTimeMS: 30000,
-};
-
-let client: MongoClient;
-let clientPromise: Promise<MongoClient>;
-
-if (process.env.NODE_ENV === 'development') {
-  const globalWithMongo = global as typeof globalThis & {
-    _mongoClientPromise?: Promise<MongoClient>;
-  };
-
-  if (!globalWithMongo._mongoClientPromise) {
-    client = new MongoClient(uri, options);
-    globalWithMongo._mongoClientPromise = client.connect();
-  }
-  clientPromise = globalWithMongo._mongoClientPromise;
-} else {
-  client = new MongoClient(uri, options);
-  clientPromise = client.connect();
+if (!MONGODB_DB_NAME) {
+  throw new Error('Please define the MONGODB_DB_NAME environment variable');
 }
 
-export async function connectToDatabase(): Promise<{ client: MongoClient; db: Db }> {
-  try {
-    const client = await clientPromise;
-    const db = client.db('personal-finance-planner');
-    return { client, db };
-  } catch (error) {
-    console.error('Failed to connect to MongoDB:', error);
-    throw new Error('Database connection failed');
+interface MongoConnection {
+  client: MongoClient;
+  db: Db;
+}
+
+let cachedConnection: MongoConnection | null = null;
+
+export async function connectToDatabase(): Promise<MongoConnection> {
+  if (cachedConnection) {
+    return cachedConnection;
   }
+
+  const client = new MongoClient(MONGODB_URI, {
+    maxPoolSize: 10,
+    minPoolSize: 5,
+    maxIdleTimeMS: 30000,
+  });
+
+  await client.connect();
+  const db = client.db(MONGODB_DB_NAME);
+
+  cachedConnection = { client, db };
+
+  await createIndexes(db);
+
+  return cachedConnection;
 }
 
 export async function getDb(): Promise<Db> {
   const { db } = await connectToDatabase();
   return db;
+}
+
+export async function closeConnection(): Promise<void> {
+  if (cachedConnection) {
+    await cachedConnection.client.close();
+    cachedConnection = null;
+  }
+}
+
+async function createIndexes(db: Db): Promise<void> {
+  await db.collection('users').createIndex({ email: 1 }, { unique: true });
+  await db.collection('users').createIndex({ createdAt: 1 });
+
+  await db.collection('categories').createIndex({ userId: 1 });
+  await db.collection('categories').createIndex({ userId: 1, name: 1 }, { unique: true });
+  await db.collection('categories').createIndex({ isDefault: 1 });
+
+  await db.collection('budgets').createIndex({ userId: 1 });
+  await db.collection('budgets').createIndex({ userId: 1, startDate: 1, endDate: 1 });
+  await db.collection('budgets').createIndex({ endDate: 1 });
+
+  await db.collection('transactions').createIndex({ userId: 1 });
+  await db.collection('transactions').createIndex({ budgetId: 1 });
+  await db.collection('transactions').createIndex({ categoryId: 1 });
+  await db.collection('transactions').createIndex({ date: 1 });
+  await db.collection('transactions').createIndex({ userId: 1, date: 1 });
+  await db.collection('transactions').createIndex({ userId: 1, budgetId: 1, date: 1 });
+
+  await db.collection('ai_recommendations').createIndex({ userId: 1 });
+  await db.collection('ai_recommendations').createIndex({ userId: 1, isRead: 1 });
+  await db.collection('ai_recommendations').createIndex({ userId: 1, isDismissed: 1 });
+  await db.collection('ai_recommendations').createIndex({ createdAt: 1 });
+
+  await db.collection('refresh_tokens').createIndex({ token: 1 }, { unique: true });
+  await db.collection('refresh_tokens').createIndex({ userId: 1 });
+  await db.collection('refresh_tokens').createIndex({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 }

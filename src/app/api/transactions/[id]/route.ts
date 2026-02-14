@@ -1,59 +1,55 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { ObjectId } from 'mongodb';
-import { getDb } from '@/lib/mongodb';
-import { getUserFromToken } from '@/lib/auth';
-import type { ApiResponse, Transaction } from '@/types';
+import { connectToDatabase } from '@/lib/mongodb';
+import { verifyToken } from '@/lib/jwt';
+import { transactionSchema } from '@/lib/validators';
+import type { Transaction, ApiResponse } from '@/types';
 
 export async function GET(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const token = request.cookies.get('auth-token')?.value;
-    if (!token) {
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Not authenticated' },
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const user = await getUserFromToken(token);
-    if (!user) {
+    const token = authHeader.substring(7);
+    const payload = await verifyToken(token);
+    if (!payload) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Invalid token' },
         { status: 401 }
       );
     }
 
-    const db = await getDb();
-    const transactionsCollection = db.collection('transactions');
+    const db = await connectToDatabase();
+    const transactionsCollection = db.collection<Transaction>('transactions');
 
-    const doc = await transactionsCollection.findOne({
+    const transaction = await transactionsCollection.findOne({
       _id: new ObjectId(params.id),
-      userId: user._id,
+      userId: payload.userId,
     });
 
-    if (!doc) {
+    if (!transaction) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Transaction not found' },
         { status: 404 }
       );
     }
 
-    const transaction: Transaction = {
-      _id: doc._id.toString(),
-      userId: doc.userId,
-      type: doc.type,
-      amount: doc.amount,
-      category: doc.category,
-      description: doc.description,
-      date: doc.date,
-      createdAt: doc.createdAt,
-      updatedAt: doc.updatedAt,
-    };
-
     return NextResponse.json<ApiResponse<Transaction>>(
-      { success: true, data: transaction },
+      {
+        success: true,
+        data: {
+          ...transaction,
+          _id: transaction._id.toString(),
+        },
+      },
       { status: 200 }
     );
   } catch (error) {
@@ -70,16 +66,17 @@ export async function PUT(
   { params }: { params: { id: string } }
 ) {
   try {
-    const token = request.cookies.get('auth-token')?.value;
-    if (!token) {
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Not authenticated' },
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const user = await getUserFromToken(token);
-    if (!user) {
+    const token = authHeader.substring(7);
+    const payload = await verifyToken(token);
+    if (!payload) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Invalid token' },
         { status: 401 }
@@ -87,37 +84,29 @@ export async function PUT(
     }
 
     const body = await request.json();
-    const { type, amount, category, description, date } = body;
-
-    const updateFields: Record<string, unknown> = { updatedAt: new Date() };
-    if (type) {
-      if (type !== 'income' && type !== 'expense') {
-        return NextResponse.json<ApiResponse<never>>(
-          { success: false, error: 'Invalid transaction type' },
-          { status: 400 }
-        );
-      }
-      updateFields.type = type;
+    const validation = transactionSchema.partial().safeParse(body);
+    if (!validation.success) {
+      return NextResponse.json<ApiResponse<never>>(
+        { success: false, error: validation.error.errors[0].message },
+        { status: 400 }
+      );
     }
-    if (amount !== undefined) {
-      if (amount <= 0) {
-        return NextResponse.json<ApiResponse<never>>(
-          { success: false, error: 'Amount must be positive' },
-          { status: 400 }
-        );
-      }
-      updateFields.amount = parseFloat(amount);
-    }
-    if (category) updateFields.category = category;
-    if (description) updateFields.description = description;
-    if (date) updateFields.date = new Date(date);
 
-    const db = await getDb();
-    const transactionsCollection = db.collection('transactions');
+    const db = await connectToDatabase();
+    const transactionsCollection = db.collection<Transaction>('transactions');
+
+    const updateData: Record<string, unknown> = {
+      ...validation.data,
+      updatedAt: new Date(),
+    };
+
+    if (validation.data.date) {
+      updateData.date = new Date(validation.data.date);
+    }
 
     const result = await transactionsCollection.findOneAndUpdate(
-      { _id: new ObjectId(params.id), userId: user._id },
-      { $set: updateFields },
+      { _id: new ObjectId(params.id), userId: payload.userId },
+      { $set: updateData },
       { returnDocument: 'after' }
     );
 
@@ -128,20 +117,14 @@ export async function PUT(
       );
     }
 
-    const transaction: Transaction = {
-      _id: result._id.toString(),
-      userId: result.userId,
-      type: result.type,
-      amount: result.amount,
-      category: result.category,
-      description: result.description,
-      date: result.date,
-      createdAt: result.createdAt,
-      updatedAt: result.updatedAt,
-    };
-
     return NextResponse.json<ApiResponse<Transaction>>(
-      { success: true, data: transaction },
+      {
+        success: true,
+        data: {
+          ...result,
+          _id: result._id.toString(),
+        },
+      },
       { status: 200 }
     );
   } catch (error) {
@@ -158,28 +141,29 @@ export async function DELETE(
   { params }: { params: { id: string } }
 ) {
   try {
-    const token = request.cookies.get('auth-token')?.value;
-    if (!token) {
+    const authHeader = request.headers.get('authorization');
+    if (!authHeader?.startsWith('Bearer ')) {
       return NextResponse.json<ApiResponse<never>>(
-        { success: false, error: 'Not authenticated' },
+        { success: false, error: 'Unauthorized' },
         { status: 401 }
       );
     }
 
-    const user = await getUserFromToken(token);
-    if (!user) {
+    const token = authHeader.substring(7);
+    const payload = await verifyToken(token);
+    if (!payload) {
       return NextResponse.json<ApiResponse<never>>(
         { success: false, error: 'Invalid token' },
         { status: 401 }
       );
     }
 
-    const db = await getDb();
-    const transactionsCollection = db.collection('transactions');
+    const db = await connectToDatabase();
+    const transactionsCollection = db.collection<Transaction>('transactions');
 
     const result = await transactionsCollection.deleteOne({
       _id: new ObjectId(params.id),
-      userId: user._id,
+      userId: payload.userId,
     });
 
     if (result.deletedCount === 0) {
@@ -190,7 +174,10 @@ export async function DELETE(
     }
 
     return NextResponse.json<ApiResponse<never>>(
-      { success: true, message: 'Transaction deleted successfully' },
+      {
+        success: true,
+        message: 'Transaction deleted successfully',
+      },
       { status: 200 }
     );
   } catch (error) {
